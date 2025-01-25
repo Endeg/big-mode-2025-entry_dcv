@@ -9,9 +9,25 @@ const util = @import("util.zig");
 //TODO: GPA allocator: dupeZ/free - possible bug
 
 // TODO: Audio assets - load/play
-// TODO: List assets configuration in json
 // TODO: json config with hot-reloading
-// TODO: Main loop: 1. read input; 2. update game; 3. render
+// TODO: Main loop:
+//         + 1. read input;
+//         + 2. update game;
+//         + 3. render
+// TODO: Main game loop:
+//         1. Pick battery by walking to it
+//         2. Can't shoot while holding battery, when shoot - drops the battery.
+//         3. Shooting by holding IJKL.
+//         4. There's enemies. To simplify:
+//              - semi-randomly walking to the player
+//              - some can shoot
+//         5. When all batteries collected - walk to the rocket, and go to next level.
+// TODO: Juice:
+//         1. Hop animation while walking.
+//         2. Screen shake.
+//         3. Audio.
+//         4. Some fancy effects.
+// TODO: Gamepad support
 
 const Json = struct {
     const Sprite = struct {
@@ -226,6 +242,8 @@ const GigaEntity = struct {
     flags: Flags = undefined,
 
     position: c.Vector2 = undefined,
+    acceleration: c.Vector2 = undefined,
+    velocity: c.Vector2 = undefined,
 
     sprite_handle: SpriteManager.Handle = undefined,
     tint: c.Color = undefined,
@@ -248,6 +266,8 @@ const GigaEntity = struct {
         return .{
             .flags = .{ .class = .Player, .moving = true, .visual = true },
             .position = position,
+            .acceleration = c.Vector2{},
+            .velocity = c.Vector2{},
             .sprite_handle = sprite_handle,
             .tint = c.GREEN,
         };
@@ -257,6 +277,8 @@ const GigaEntity = struct {
         return .{
             .flags = .{ .class = .Battery, .moving = true, .visual = true },
             .position = position,
+            .acceleration = c.Vector2{},
+            .velocity = c.Vector2{},
             .sprite_handle = sprite_handle,
             .tint = c.VIOLET,
         };
@@ -264,7 +286,7 @@ const GigaEntity = struct {
 };
 
 const EntityManager = struct {
-    entities: std.MultiArrayList(GigaEntity),
+    entities: EntitySOA,
     entity_index: std.AutoHashMapUnmanaged(Handle, usize),
     allocator: std.mem.Allocator,
     current_entity_counter: u16 = 0,
@@ -273,10 +295,12 @@ const EntityManager = struct {
 
     const MaxEntities = 16 * 1024;
 
+    const EntitySOA = std.MultiArrayList(GigaEntity);
+
     const Handle = enum(u16) { _ };
 
     pub fn init(allocator: std.mem.Allocator) !Self {
-        var entities = std.MultiArrayList(GigaEntity){};
+        var entities = EntitySOA{};
         try entities.ensureUnusedCapacity(allocator, MaxEntities);
 
         var entity_index = std.AutoHashMapUnmanaged(Handle, usize){};
@@ -309,6 +333,14 @@ const EntityManager = struct {
         // std.debug.print("[Entity Manager] new {any}.\n", .{new_handle});
 
         return new_handle;
+    }
+
+    pub fn entityField(self: *Self, handle: Handle, comptime field: EntitySOA.Field) ?*std.meta.FieldType(GigaEntity, field) {
+        if (self.entity_index.get(handle)) |entity_row| {
+            return &self.entities.items(field)[entity_row];
+        } else {
+            return null;
+        }
     }
 
     pub fn removeEntity(self: *Self, handle: Handle) void {
@@ -360,6 +392,14 @@ const EntityManager = struct {
     }
 };
 
+const Input = struct {
+    dt: f32,
+    up: bool = false,
+    down: bool = false,
+    left: bool = false,
+    right: bool = false,
+};
+
 pub fn main() !void {
     c.InitWindow(1280, 720, "Unnamed Game Jam Entry");
     c.SetTargetFPS(60);
@@ -400,19 +440,39 @@ pub fn main() !void {
         ));
     }
 
-    _ = player_handle;
-
     const screen_width: f32 = @floatFromInt(c.GetScreenWidth());
     const screen_height: f32 = @floatFromInt(c.GetScreenHeight());
 
-    const camera = c.Camera2D{
+    var camera = c.Camera2D{
         .offset = .{ .x = screen_width * 0.5, .y = screen_height * 0.5 },
         .rotation = 0,
         .target = .{ .x = 0, .y = 0 },
         .zoom = 3,
     };
 
+    var frame_messages = try std.ArrayList([]const u8).initCapacity(gpa.allocator(), 128);
+    const frame_memory = try gpa.allocator().alloc(u8, 1 * 1024 * 1024);
+
+    var frame_fba = std.heap.FixedBufferAllocator.init(frame_memory);
+    var frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());
+    const frame_allocator = frame_arena.allocator();
+
     while (!c.WindowShouldClose()) {
+        frame_messages.clearRetainingCapacity();
+        _ = frame_arena.reset(.retain_capacity);
+
+        const input = Input{
+            .dt = c.GetFrameTime(),
+            .up = c.IsKeyDown(c.KEY_W),
+            .down = c.IsKeyDown(c.KEY_S),
+            .left = c.IsKeyDown(c.KEY_A),
+            .right = c.IsKeyDown(c.KEY_D),
+        };
+
+        if (entity_manager.entityField(player_handle, .position)) |player_position| {
+            camera.target = c.Vector2Lerp(camera.target, player_position.*, 0.05);
+        }
+
         c.BeginDrawing();
         defer c.EndDrawing();
 
@@ -421,23 +481,116 @@ pub fn main() !void {
         c.ClearBackground(c.BLACK);
 
         c.DrawLine(0, 700, 1280, 700, c.DARKBROWN);
+        {
+            var i: usize = 0;
+            while (i < entity_manager.entities.len) : (i += 1) {
+                const flags = entity_manager.entities.items(.flags);
+                const position = entity_manager.entities.items(.position);
+                const acceleration = entity_manager.entities.items(.acceleration);
+                const velocity = entity_manager.entities.items(.velocity);
+                const sprite_handle = entity_manager.entities.items(.sprite_handle);
+                const tint = entity_manager.entities.items(.tint);
 
-        var i: usize = 0;
-        while (i < entity_manager.entities.len) : (i += 1) {
-            const flags = entity_manager.entities.items(.flags);
-            const position = entity_manager.entities.items(.position);
-            const sprite_handle = entity_manager.entities.items(.sprite_handle);
-            const tint = entity_manager.entities.items(.tint);
+                //TODO: Move hot-reloaded json config
+                const PlayerAccMagnitude: f32 = 200;
+                const PlayerDamping: f32 = 0.8;
+                const PlayerMaxVelocity: f32 = 100;
+                const PlayerMass: f32 = 150;
 
-            if (flags[i].visual) {
-                const sprite = sprite_manager.get(sprite_handle[i]);
-                drawSprite(sprite, position[i], 0, tint[i], &texture_manager);
+                //TODO: Proper units: e.g. 16px - 1 meter or something.
+
+                //TODO: Start extracting to functions.
+
+                if (flags[i].class == .Player) {
+                    acceleration[i] = .{};
+
+                    if (input.left) {
+                        acceleration[i].x = -1;
+                    }
+                    if (input.right) {
+                        acceleration[i].x = 1;
+                    }
+                    if (input.up) {
+                        acceleration[i].y = -1;
+                    }
+                    if (input.down) {
+                        acceleration[i].y = 1;
+                    }
+
+                    acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), PlayerAccMagnitude);
+                    //{[argument][specifier]:[fill][alignment][width].[precision]}`
+                    frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                        frame_allocator,
+                        "player.acceleration = {d:.4}, {d:.4}.",
+                        .{ acceleration[i].x, acceleration[i].y },
+                    ));
+                    frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                        frame_allocator,
+                        "player.velocity = {d:.4}, {d:.4}.",
+                        .{ velocity[i].x, velocity[i].y },
+                    ));
+                }
+
+                if (flags[i].moving) {
+                    if (c.Vector2Length(velocity[i]) > 0 and c.Vector2Length(acceleration[0]) > 0) {
+                        // Decrease velocity if direction was changed
+                        const vel_norm = c.Vector2Normalize(velocity[i]);
+                        const acc_norm = c.Vector2Normalize(acceleration[i]);
+                        const dot_product = c.Vector2DotProduct(vel_norm, acc_norm);
+                        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                            frame_allocator,
+                            "player.dot_product = {d:.4}.",
+                            .{dot_product},
+                        ));
+                        if (dot_product < 0) {
+                            velocity[i] = c.Vector2Subtract(velocity[i], c.Vector2Scale(velocity[i], (1 - PlayerDamping) * @abs(dot_product) * input.dt / PlayerMass));
+                        }
+                    }
+
+                    // const vt = c.Vector2Scale(velocity[i], input.dt);
+                    // const at = c.Vector2Scale(acceleration[i], input.dt * input.dt * 0.5);
+                    // if (flags[i].class == .Player) {
+                    //     frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                    //         frame_allocator,
+                    //         "player.vt = {d:.4}, {d:.4}.",
+                    //         .{ vt.x, vt.y },
+                    //     ));
+                    //     frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                    //         frame_allocator,
+                    //         "player.at = {d:.4}, {d:.4}.",
+                    //         .{ at.x, at.y },
+                    //     ));
+                    // }
+                    // velocity[i] = c.Vector2Add(velocity[i], c.Vector2Add(vt, at));
+
+                    velocity[i] = c.Vector2Add(velocity[i], c.Vector2Scale(acceleration[i], input.dt));
+
+                    if (c.Vector2Length(acceleration[i]) == 0) {
+                        velocity[i] = c.Vector2Scale(velocity[i], PlayerDamping);
+                    }
+
+                    velocity[i] = c.Vector2ClampValue(velocity[i], 0, PlayerMaxVelocity);
+
+                    //accelerate and stuff!
+
+                    position[i] = c.Vector2Add(position[i], c.Vector2Scale(velocity[i], input.dt));
+                }
+
+                if (flags[i].visual) {
+                    const sprite = sprite_manager.get(sprite_handle[i]);
+                    drawSprite(sprite, position[i], 0, tint[i], &texture_manager);
+                }
             }
         }
 
         c.EndMode2D();
 
         c.DrawFPS(2, 2);
+
+        for (frame_messages.items, 0..) |frame_message, i| {
+            const index: c_int = @intCast(i);
+            c.DrawText(frame_message.ptr, 2, 20 * (index + 1), 18, c.RAYWHITE);
+        }
     }
 }
 
