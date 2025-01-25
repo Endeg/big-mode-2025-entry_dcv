@@ -1,0 +1,9 @@
+zig-out/
+.zig-cache/
+
+*.png
+
+*.dll
+*.pdb
+
+*.py

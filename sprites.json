@@ -1,0 +1,10 @@
+{
+    "main-guy": {
+        "image": "tile-28x9.png",
+        "origin": {"x": 0.5, "y": 1}
+    },
+    "battery": {
+        "image": "tile-12x8.png",
+        "origin": {"x": 0.5, "y": 1}
+    }
+}
