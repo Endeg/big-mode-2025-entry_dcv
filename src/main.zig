@@ -8,8 +8,6 @@ const util = @import("util.zig");
 
 //TODO: GPA allocator: dupeZ/free - possible bug
 
-// TODO: Entity manager - use GigaEntity
-//>TODO: Sprite assets - load/render
 // TODO: Audio assets - load/play
 // TODO: List assets configuration in json
 // TODO: json config with hot-reloading
@@ -223,10 +221,146 @@ fn drawSprite(
     );
 }
 
-pub fn main() !void {
-    const s = try std.fs.cwd().statFile("translate-c.cmd");
-    log.debug("s.atime = {d}, s.ctime = {d}, s.mtime = {d}.", .{ s.atime, s.ctime, s.mtime });
+const GigaEntity = struct {
+    handle: EntityManager.Handle = undefined,
+    flags: Flags = undefined,
 
+    position: c.Vector2 = undefined,
+
+    sprite_handle: SpriteManager.Handle = undefined,
+    tint: c.Color = undefined,
+
+    const Class = enum(u1) {
+        Player,
+        Battery,
+    };
+
+    const Flags = packed struct(u8) {
+        class: Class,
+        moving: bool = false,
+        visual: bool = false,
+        pad: u5 = 0,
+    };
+
+    const Self = @This();
+
+    pub fn player(position: c.Vector2, sprite_handle: SpriteManager.Handle) Self {
+        return .{
+            .flags = .{ .class = .Player, .moving = true, .visual = true },
+            .position = position,
+            .sprite_handle = sprite_handle,
+            .tint = c.GREEN,
+        };
+    }
+
+    pub fn battery(position: c.Vector2, sprite_handle: SpriteManager.Handle) Self {
+        return .{
+            .flags = .{ .class = .Battery, .moving = true, .visual = true },
+            .position = position,
+            .sprite_handle = sprite_handle,
+            .tint = c.VIOLET,
+        };
+    }
+};
+
+const EntityManager = struct {
+    entities: std.MultiArrayList(GigaEntity),
+    entity_index: std.AutoHashMapUnmanaged(Handle, usize),
+    allocator: std.mem.Allocator,
+    current_entity_counter: u16 = 0,
+
+    const Self = @This();
+
+    const MaxEntities = 16 * 1024;
+
+    const Handle = enum(u16) { _ };
+
+    pub fn init(allocator: std.mem.Allocator) !Self {
+        var entities = std.MultiArrayList(GigaEntity){};
+        try entities.ensureUnusedCapacity(allocator, MaxEntities);
+
+        var entity_index = std.AutoHashMapUnmanaged(Handle, usize){};
+        try entity_index.ensureTotalCapacity(allocator, MaxEntities);
+
+        return .{
+            .entities = entities,
+            .entity_index = entity_index,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.entities.deinit(self.allocator);
+        self.entity_index.deinit(self.allocator);
+    }
+
+    pub fn createEntity(self: *Self, entity: GigaEntity) Handle {
+        assert(self.entities.len == self.entity_index.count());
+
+        const new_handle: Handle = @enumFromInt(self.current_entity_counter);
+        defer self.current_entity_counter += 1;
+
+        const entity_row = self.entities.len;
+
+        self.entities.appendAssumeCapacity(entity);
+        self.entities.items(.handle)[entity_row] = new_handle;
+        self.entity_index.putAssumeCapacityNoClobber(new_handle, entity_row);
+
+        // std.debug.print("[Entity Manager] new {any}.\n", .{new_handle});
+
+        return new_handle;
+    }
+
+    pub fn removeEntity(self: *Self, handle: Handle) void {
+        assert(self.entities.len == self.entity_index.count());
+
+        if (self.entities.len == 0) {
+            return;
+        }
+
+        //TODO: fetchRemove
+        if (self.entity_index.get(handle)) |entity_row| {
+            if (self.entities.len == 1) {
+                // std.debug.print(
+                //     "[Entity Manager] removing last {d}: {any}.\n",
+                //     .{ 0, self.entities.items(.handle)[0] },
+                // );
+                self.entities.clearRetainingCapacity();
+                self.entity_index.clearRetainingCapacity();
+            } else {
+                const not_last_row = entity_row != self.entities.len - 1;
+
+                if (not_last_row) {
+                    const handle_to_move = self.entities.items(.handle)[self.entities.len - 1];
+
+                    // std.debug.print(
+                    //     "[Entity Manager] removing {d}: {any}.\n",
+                    //     .{ entity_row, self.entities.items(.handle)[entity_row] },
+                    // );
+
+                    // std.debug.print(
+                    //     "[Entity Manager] moving {d} -> {d}: {any}.\n",
+                    //     .{ self.entities.len - 1, entity_row, self.entities.items(.handle)[self.entities.len - 1] },
+                    // );
+
+                    self.entities.swapRemove(entity_row);
+                    _ = self.entity_index.remove(handle);
+
+                    self.entity_index.putAssumeCapacity(handle_to_move, entity_row);
+                } else {
+                    self.entities.len -= 1;
+                    _ = self.entity_index.remove(handle);
+                }
+            }
+            // std.debug.print(
+            //     "[Entity Manager] stats entities {d}, entity index {d}.\n",
+            //     .{ self.entities.len, self.entity_index.count() },
+            // );
+        }
+    }
+};
+
+pub fn main() !void {
     c.InitWindow(1280, 720, "Unnamed Game Jam Entry");
     c.SetTargetFPS(60);
 
@@ -241,38 +375,32 @@ pub fn main() !void {
         try sprite_manager.loadFromJson(sprites_json_content);
     }
 
-    const kenney_1bitpack = try texture_manager.fetchHandle("kenney_1bitpack_monochrome_transparent.png");
-    log.debug("kenney_1bitpack = {any}", .{kenney_1bitpack});
+    var entity_manager = try EntityManager.init(gpa.allocator());
 
-    if (false) {
-        const allocator = gpa.allocator();
-        const sprites_json_content = try util.readEntireFileAlloc(".", "sprites.json", allocator);
-        defer allocator.free(sprites_json_content);
-        const parsed = try std.json.parseFromSlice(std.json.Value, allocator, sprites_json_content, .{});
-        defer parsed.deinit();
-        switch (parsed.value) {
-            .object => |sprites_json_value| {
-                var iter = sprites_json_value.iterator();
+    const player_sprite_handle = sprite_manager.find("main-guy").?;
+    const battery_sprite_handle = sprite_manager.find("battery").?;
 
-                while (iter.next()) |entry| {
-                    const sprite_name = entry.key_ptr.*;
-                    const sprite_json_value = entry.value_ptr.*;
+    const player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }, player_sprite_handle));
 
-                    var tmp_iter = sprite_json_value.object.iterator();
+    var prng = std.Random.DefaultPrng.init(0x6969);
+    var rng = prng.random();
 
-                    while (tmp_iter.next()) |tmp_entry| {
-                        log.debug("Json - {s} -> {s} : {any}.", .{ sprite_name, tmp_entry.key_ptr.*, tmp_entry.value_ptr.* });
-                    }
+    var batteries_count: i32 = 20;
+    while (batteries_count >= 0) : (batteries_count -= 1) {
+        //TODO: Battery creation function
 
-                    const parsed_object = try std.json.parseFromValue(Json.Sprite, allocator, sprite_json_value, .{});
-                    defer parsed_object.deinit();
+        const BatteriseDistribution = 100;
 
-                    log.debug("Json - {s} -> {any}.", .{ sprite_name, parsed_object.value });
-                }
+        _ = entity_manager.createEntity(GigaEntity.battery(
+            .{
+                .x = rng.floatNorm(f32) * BatteriseDistribution - BatteriseDistribution * 0.5,
+                .y = rng.floatNorm(f32) * BatteriseDistribution - BatteriseDistribution * 0.5,
             },
-            else => unreachable,
-        }
+            battery_sprite_handle,
+        ));
     }
+
+    _ = player_handle;
 
     const screen_width: f32 = @floatFromInt(c.GetScreenWidth());
     const screen_height: f32 = @floatFromInt(c.GetScreenHeight());
@@ -290,19 +418,20 @@ pub fn main() !void {
 
         c.BeginMode2D(camera);
 
-        c.ClearBackground(c.LIGHTGRAY);
+        c.ClearBackground(c.BLACK);
 
         c.DrawLine(0, 700, 1280, 700, c.DARKBROWN);
 
-        const SpriteNames = .{ "main-guy", "battery" };
+        var i: usize = 0;
+        while (i < entity_manager.entities.len) : (i += 1) {
+            const flags = entity_manager.entities.items(.flags);
+            const position = entity_manager.entities.items(.position);
+            const sprite_handle = entity_manager.entities.items(.sprite_handle);
+            const tint = entity_manager.entities.items(.tint);
 
-        var pos: f32 = 0;
-
-        inline for (SpriteNames) |SpriteName| {
-            if (sprite_manager.find(SpriteName)) |sprite_handle| {
-                const sprite = sprite_manager.get(sprite_handle);
-                drawSprite(sprite, .{ .x = pos, .y = 0 }, 0, c.BLUE, &texture_manager);
-                pos += 20;
+            if (flags[i].visual) {
+                const sprite = sprite_manager.get(sprite_handle[i]);
+                drawSprite(sprite, position[i], 0, tint[i], &texture_manager);
             }
         }
 
@@ -310,4 +439,36 @@ pub fn main() !void {
 
         c.DrawFPS(2, 2);
     }
+}
+
+test "entity manager stuff" {
+    const allocator = std.testing.allocator;
+
+    var em = try EntityManager.init(allocator);
+    defer em.deinit();
+
+    const DatasetSize = 1000;
+
+    var entity_handles = try std.ArrayList(EntityManager.Handle).initCapacity(allocator, DatasetSize);
+    defer entity_handles.deinit();
+
+    var prng = std.Random.DefaultPrng.init(0x69);
+    var rng = prng.random();
+    var entities_count: usize = DatasetSize;
+    while (entities_count > 0) : (entities_count -= 1) {
+        const handle = em.createEntity(GigaEntity.player(
+            .{ .x = rng.float(f32), .y = rng.float(f32) },
+            @enumFromInt(rng.int(u16)),
+        ));
+        entity_handles.appendAssumeCapacity(handle);
+    }
+
+    rng.shuffle(EntityManager.Handle, entity_handles.items);
+
+    for (entity_handles.items) |entity_handle| {
+        em.removeEntity(entity_handle);
+    }
+
+    try std.testing.expectEqual(0, em.entity_index.count());
+    try std.testing.expectEqual(0, em.entities.len);
 }
