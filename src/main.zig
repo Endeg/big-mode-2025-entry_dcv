@@ -16,7 +16,7 @@ const util = @import("util.zig");
 // TODO: Main game loop:
 //         1. Pick battery by walking to it
 //         2. Can't shoot while holding battery, when shoot - drops the battery.
-//         3. Shooting by holding IJKL.
+//        >3. Shooting by holding IJKL.
 //         4. There's enemies. To simplify:
 //              - semi-randomly walking to the player
 //              - some can shoot
@@ -240,9 +240,11 @@ const GigaEntity = struct {
     handle: EntityManager.Handle = undefined,
     flags: Flags = undefined,
 
-    position: c.Vector2 = undefined,
-    acceleration: c.Vector2 = undefined,
-    velocity: c.Vector2 = undefined,
+    position: c.Vector2 = .{},
+    acceleration: c.Vector2 = .{},
+    velocity: c.Vector2 = .{},
+
+    shoot_info: ShootInfo = .{},
 
     sprite_handle: SpriteManager.Handle = undefined,
     tint: c.Color = undefined,
@@ -259,14 +261,17 @@ const GigaEntity = struct {
         pad: u5 = 0,
     };
 
+    const ShootInfo = struct {
+        direction: c.Vector2 = .{},
+        cooldown: f32 = 0,
+    };
+
     const Self = @This();
 
     pub fn player(position: c.Vector2, sprite_handle: SpriteManager.Handle) Self {
         return .{
             .flags = .{ .class = .Player, .moving = true, .visual = true },
             .position = position,
-            .acceleration = c.Vector2{},
-            .velocity = c.Vector2{},
             .sprite_handle = sprite_handle,
             .tint = c.GREEN,
         };
@@ -276,8 +281,6 @@ const GigaEntity = struct {
         return .{
             .flags = .{ .class = .Battery, .moving = true, .visual = true },
             .position = position,
-            .acceleration = c.Vector2{},
-            .velocity = c.Vector2{},
             .sprite_handle = sprite_handle,
             .tint = c.VIOLET,
         };
@@ -397,6 +400,10 @@ const Input = struct {
     down: bool = false,
     left: bool = false,
     right: bool = false,
+    shoot_up: bool = false,
+    shoot_down: bool = false,
+    shoot_left: bool = false,
+    shoot_right: bool = false,
 };
 
 fn integratePhysics(
@@ -446,6 +453,8 @@ const Config = struct {
     player_damping: f32 = 0.8,
     player_max_velocity: f32 = 100,
     player_mass: f32 = 150,
+    player_shoot_cooldown: f32 = 0.4,
+    player_shoot_start_distance: f32 = 17,
 
     const Self = @This();
 
@@ -470,6 +479,15 @@ const Config = struct {
 };
 
 const BuggyPhysicsIntegration = false;
+
+pub fn determineDirection(up: bool, down: bool, left: bool, right: bool) c.Vector2 {
+    var result = c.Vector2{};
+    if (left) result.x = -1;
+    if (right) result.x = 1;
+    if (up) result.y = -1;
+    if (down) result.y = 1;
+    return result;
+}
 
 pub fn main() !void {
     var gpa = GPA{};
@@ -540,6 +558,10 @@ pub fn main() !void {
             .down = c.IsKeyDown(c.KEY_S),
             .left = c.IsKeyDown(c.KEY_A),
             .right = c.IsKeyDown(c.KEY_D),
+            .shoot_up = c.IsKeyDown(c.KEY_I) or c.IsKeyDown(c.KEY_UP),
+            .shoot_down = c.IsKeyDown(c.KEY_K) or c.IsKeyDown(c.KEY_DOWN),
+            .shoot_left = c.IsKeyDown(c.KEY_J) or c.IsKeyDown(c.KEY_LEFT),
+            .shoot_right = c.IsKeyDown(c.KEY_L) or c.IsKeyDown(c.KEY_RIGHT),
         };
 
         if (config_watcher.wasModified(input.dt)) {
@@ -568,29 +590,16 @@ pub fn main() !void {
                 const velocity = entity_manager.entities.items(.velocity);
                 const sprite_handle = entity_manager.entities.items(.sprite_handle);
                 const tint = entity_manager.entities.items(.tint);
+                const shoot_info = entity_manager.entities.items(.shoot_info);
 
                 //TODO: Proper units: e.g. 16px - 1 meter or something.
 
                 //TODO: Start extracting to functions.
 
                 if (flags[i].class == .Player) {
-                    acceleration[i] = .{};
-
-                    if (input.left) {
-                        acceleration[i].x = -1;
-                    }
-                    if (input.right) {
-                        acceleration[i].x = 1;
-                    }
-                    if (input.up) {
-                        acceleration[i].y = -1;
-                    }
-                    if (input.down) {
-                        acceleration[i].y = 1;
-                    }
+                    acceleration[i] = determineDirection(input.up, input.down, input.left, input.right);
 
                     acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.player_acc_magnitude);
-                    //{[argument][specifier]:[fill][alignment][width].[precision]}`
                     frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
                         frame_allocator,
                         "player.acceleration = {d:.4}, {d:.4}.",
@@ -604,6 +613,7 @@ pub fn main() !void {
                 }
 
                 if (flags[i].moving) {
+                    const initial_position = position[i];
                     try integratePhysics(
                         &position[i],
                         &acceleration[i],
@@ -613,6 +623,45 @@ pub fn main() !void {
                         &frame_messages,
                         frame_allocator,
                     );
+
+                    if (flags[i].class == .Player) {
+                        const frame_distance = c.Vector2Distance(initial_position, position[i]);
+                        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                            frame_allocator,
+                            "player.frame_distance = {d:.4}.",
+                            .{frame_distance},
+                        ));
+                    }
+                }
+
+                if (flags[i].class == .Player) {
+                    if (shoot_info[i].cooldown > 0) {
+                        shoot_info[i].cooldown = std.math.clamp(shoot_info[i].cooldown - input.dt, 0, config.player_shoot_cooldown);
+                    }
+
+                    const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
+                    if (is_shooting and shoot_info[i].cooldown <= 0) {
+                        const shoot_direction = determineDirection(
+                            input.shoot_up,
+                            input.shoot_down,
+                            input.shoot_left,
+                            input.shoot_right,
+                        );
+
+                        const shoot_start_position = c.Vector2Add(
+                            position[i],
+                            c.Vector2Scale(shoot_direction, config.player_shoot_start_distance),
+                        );
+
+                        _ = entity_manager.createEntity(GigaEntity.battery(shoot_start_position, battery_sprite_handle));
+
+                        shoot_info[i].cooldown = config.player_shoot_cooldown;
+                    }
+                    frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                        frame_allocator,
+                        "player.shoot_cooldown = {d:.4}.",
+                        .{shoot_info[i].cooldown},
+                    ));
                 }
 
                 if (flags[i].visual) {
@@ -621,6 +670,12 @@ pub fn main() !void {
                 }
             }
         }
+
+        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+            frame_allocator,
+            "entities.count = {d}.",
+            .{entity_manager.entities.len},
+        ));
 
         c.EndMode2D();
 

@@ -3,5 +3,6 @@
     "player_damping": 0.8,
     "player_max_velocity": 100,
     "player_mass": 150,
+    "player_shoot_cooldown": 0.4,
     "unknown_value": 22
 }
