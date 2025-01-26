@@ -16,7 +16,7 @@ const util = @import("util.zig");
 // TODO: Main game loop:
 //         1. Pick battery by walking to it
 //         2. Can't shoot while holding battery, when shoot - drops the battery.
-//        >3. Shooting by holding IJKL.
+//        +3. Shooting by holding IJKL.
 //         4. There's enemies. To simplify:
 //              - semi-randomly walking to the player
 //              - some can shoot
@@ -26,6 +26,7 @@ const util = @import("util.zig");
 //         2. Screen shake.
 //         3. Audio.
 //         4. Some fancy effects.
+//         5. Blaster animation, use cooldown timer.
 // TODO: Gamepad support
 
 const Json = struct {
@@ -245,20 +246,24 @@ const GigaEntity = struct {
     velocity: c.Vector2 = .{},
 
     shoot_info: ShootInfo = .{},
+    ttl: f32 = 0,
 
+    //TODO: Draw entity depending on class and use some variation field to determine different visual for some classes
     sprite_handle: SpriteManager.Handle = undefined,
     tint: c.Color = undefined,
 
-    const Class = enum(u1) {
+    const Class = enum(u2) {
         Player,
         Battery,
+        Projectile,
     };
 
     const Flags = packed struct(u8) {
         class: Class,
         moving: bool = false,
         visual: bool = false,
-        pad: u5 = 0,
+        alive: bool = true,
+        pad: u3 = 0,
     };
 
     const ShootInfo = struct {
@@ -283,6 +288,18 @@ const GigaEntity = struct {
             .position = position,
             .sprite_handle = sprite_handle,
             .tint = c.VIOLET,
+        };
+    }
+
+    pub fn projectile(position: c.Vector2, acceleration: c.Vector2, ttl: f32, sprite_handle: SpriteManager.Handle) Self {
+        return .{
+            .flags = .{ .class = .Projectile, .moving = true, .visual = true },
+            .position = position,
+            .acceleration = acceleration,
+            .velocity = acceleration,
+            .ttl = ttl,
+            .sprite_handle = sprite_handle,
+            .tint = c.YELLOW,
         };
     }
 };
@@ -407,24 +424,18 @@ const Input = struct {
 };
 
 fn integratePhysics(
+    entity_class: GigaEntity.Class,
     position: *c.Vector2,
     acceleration: *c.Vector2,
     velocity: *c.Vector2,
     input: Input,
     config: Config,
-    frame_messages: *std.ArrayList([]const u8),
-    frame_allocator: std.mem.Allocator,
 ) !void {
     if (c.Vector2Length(velocity.*) > 0 and c.Vector2Length(acceleration.*) > 0) {
         // Decrease velocity if direction was changed
         const vel_norm = c.Vector2Normalize(velocity.*);
         const acc_norm = c.Vector2Normalize(acceleration.*);
         const dot_product = c.Vector2DotProduct(vel_norm, acc_norm);
-        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-            frame_allocator,
-            "player.dot_product = {d:.4}.",
-            .{dot_product},
-        ));
         if (dot_product < 0) {
             velocity.* = c.Vector2Subtract(velocity.*, c.Vector2Scale(velocity.*, (1 - config.player_damping) * @abs(dot_product) * input.dt / config.player_mass));
         }
@@ -437,11 +448,25 @@ fn integratePhysics(
         velocity.* = c.Vector2Add(velocity.*, c.Vector2Scale(acceleration.*, input.dt));
     }
 
-    if (c.Vector2Length(acceleration.*) == 0) {
-        velocity.* = c.Vector2Scale(velocity.*, config.player_damping);
+    var damping: f32 = 0;
+    var max_velocity: f32 = 0;
+    switch (entity_class) {
+        .Player => {
+            damping = config.player_damping;
+            max_velocity = config.player_max_velocity;
+        },
+        .Projectile => {
+            damping = config.player_projectile_damping;
+            max_velocity = config.player_projectile_max_velocity;
+        },
+        else => {},
     }
 
-    velocity.* = c.Vector2ClampValue(velocity.*, 0, config.player_max_velocity);
+    if (c.Vector2Length(acceleration.*) == 0) {
+        velocity.* = c.Vector2Scale(velocity.*, damping);
+    }
+
+    velocity.* = c.Vector2ClampValue(velocity.*, 0, max_velocity);
 
     //accelerate and stuff!
 
@@ -454,7 +479,13 @@ const Config = struct {
     player_max_velocity: f32 = 100,
     player_mass: f32 = 150,
     player_shoot_cooldown: f32 = 0.4,
+    player_blaster_distance: f32 = 7,
     player_shoot_start_distance: f32 = 17,
+    player_shoot_hands_height: f32 = 6,
+    player_projectile_acceleration_magnitude: f32 = 700,
+    player_projectile_damping: f32 = 1,
+    player_projectile_max_velocity: f32 = 800,
+    player_projectile_ttl: f32 = 0.8,
 
     const Self = @This();
 
@@ -486,7 +517,7 @@ pub fn determineDirection(up: bool, down: bool, left: bool, right: bool) c.Vecto
     if (right) result.x = 1;
     if (up) result.y = -1;
     if (down) result.y = 1;
-    return result;
+    return c.Vector2Normalize(result);
 }
 
 pub fn main() !void {
@@ -512,6 +543,8 @@ pub fn main() !void {
 
     const player_sprite_handle = sprite_manager.find("main-guy").?;
     const battery_sprite_handle = sprite_manager.find("battery").?;
+    const projectile_sprite_handle = sprite_manager.find("projectile").?;
+    const blaster_sprite_handle = sprite_manager.find("blaster").?;
 
     const player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }, player_sprite_handle));
 
@@ -591,6 +624,7 @@ pub fn main() !void {
                 const sprite_handle = entity_manager.entities.items(.sprite_handle);
                 const tint = entity_manager.entities.items(.tint);
                 const shoot_info = entity_manager.entities.items(.shoot_info);
+                const ttl = entity_manager.entities.items(.ttl);
 
                 //TODO: Proper units: e.g. 16px - 1 meter or something.
 
@@ -610,18 +644,22 @@ pub fn main() !void {
                         "player.velocity = {d:.4}, {d:.4}.",
                         .{ velocity[i].x, velocity[i].y },
                     ));
+                } else if (flags[i].class == .Projectile) {
+                    ttl[i] = @max(ttl[i] - input.dt, 0);
+                    if (ttl[i] == 0) {
+                        flags[i].alive = false;
+                    }
                 }
 
                 if (flags[i].moving) {
                     const initial_position = position[i];
                     try integratePhysics(
+                        flags[i].class,
                         &position[i],
                         &acceleration[i],
                         &velocity[i],
                         input,
                         config,
-                        &frame_messages,
-                        frame_allocator,
                     );
 
                     if (flags[i].class == .Player) {
@@ -649,11 +687,19 @@ pub fn main() !void {
                         );
 
                         const shoot_start_position = c.Vector2Add(
-                            position[i],
-                            c.Vector2Scale(shoot_direction, config.player_shoot_start_distance),
+                            c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
+                            c.Vector2Add(
+                                position[i],
+                                c.Vector2Scale(shoot_direction, config.player_shoot_start_distance),
+                            ),
                         );
 
-                        _ = entity_manager.createEntity(GigaEntity.battery(shoot_start_position, battery_sprite_handle));
+                        _ = entity_manager.createEntity(GigaEntity.projectile(
+                            shoot_start_position,
+                            c.Vector2Scale(shoot_direction, config.player_projectile_acceleration_magnitude),
+                            config.player_projectile_ttl,
+                            projectile_sprite_handle,
+                        ));
 
                         shoot_info[i].cooldown = config.player_shoot_cooldown;
                     }
@@ -667,6 +713,85 @@ pub fn main() !void {
                 if (flags[i].visual) {
                     const sprite = sprite_manager.get(sprite_handle[i]);
                     drawSprite(sprite, position[i], 0, tint[i], &texture_manager);
+
+                    if (flags[i].class == .Player) {
+                        const blaster_sprite = sprite_manager.get(blaster_sprite_handle);
+
+                        const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
+                        if (is_shooting) {
+                            const shoot_direction = determineDirection(
+                                input.shoot_up,
+                                input.shoot_down,
+                                input.shoot_left,
+                                input.shoot_right,
+                            );
+
+                            const blaster_position = c.Vector2Add(
+                                c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
+                                c.Vector2Add(
+                                    position[i],
+                                    c.Vector2Scale(shoot_direction, config.player_blaster_distance),
+                                ),
+                            );
+
+                            // Can't figure out how to get direction vector's angle
+                            // and to not waste time, here's the solution.
+
+                            const Angles = [_]f32{
+                                0 * 45, //       Right
+                                1 * 45, // Down  Right
+                                2 * 45, // Down
+                                3 * 45, // Down  Left
+                                4 * 45, //       Left
+                                5 * 45, // Up    Left
+                                6 * 45, // Up
+                                7 * 45, // Up    Right
+                            };
+
+                            var angle_index: usize = 0;
+
+                            if (input.shoot_up and input.shoot_right) {
+                                angle_index = 7;
+                            } else if (input.shoot_up and input.shoot_left) {
+                                angle_index = 5;
+                            } else if (input.shoot_down and input.shoot_right) {
+                                angle_index = 1;
+                            } else if (input.shoot_down and input.shoot_left) {
+                                angle_index = 3;
+                            } else if (input.shoot_up) {
+                                angle_index = 6;
+                            } else if (input.shoot_down) {
+                                angle_index = 2;
+                            } else if (input.shoot_left) {
+                                angle_index = 4;
+                            } else if (input.shoot_right) {
+                                angle_index = 0;
+                            }
+
+                            const angle = Angles[angle_index];
+
+                            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                                frame_allocator,
+                                "player.blaster_angle = {d:.4}.",
+                                .{angle},
+                            ));
+
+                            drawSprite(blaster_sprite, blaster_position, angle, c.DARKGREEN, &texture_manager);
+                        }
+                    }
+                }
+            }
+        }
+
+        {
+            var i: usize = 0;
+            while (i < entity_manager.entities.len) {
+                const handle = entity_manager.entities.items(.handle);
+                const flags = entity_manager.entities.items(.flags);
+                if (!flags[i].alive) {
+                    entity_manager.removeEntity(handle[i]);
+                } else {
+                    i += 1;
                 }
             }
         }

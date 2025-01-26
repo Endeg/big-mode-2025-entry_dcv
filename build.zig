@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
     exe.addLibraryPath(.{ .cwd_relative = "libs/raylib/lib" });
+    exe.linkLibC();
     exe.linkSystemLibrary("raylib");
 
     b.installArtifact(exe);
