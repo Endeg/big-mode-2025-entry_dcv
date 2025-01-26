@@ -237,13 +237,6 @@ fn drawSprite(
     );
 }
 
-const Layers = enum {
-    Background,
-    Sprites,
-    MoreSprites,
-    Foreground,
-};
-
 const GigaEntity = struct {
     handle: EntityManager.Handle = undefined,
     flags: Flags = undefined,
@@ -256,6 +249,7 @@ const GigaEntity = struct {
     ttl: f32 = 0,
 
     tint: c.Color = undefined,
+    layer: Layer = .Sprites,
 
     const Class = enum(u2) {
         Player,
@@ -276,6 +270,13 @@ const GigaEntity = struct {
         cooldown: f32 = 0,
     };
 
+    const Layer = enum(u2) {
+        Background,
+        Sprites,
+        MoreSprites,
+        Foreground,
+    };
+
     const Self = @This();
 
     pub fn player(position: c.Vector2) Self {
@@ -283,6 +284,7 @@ const GigaEntity = struct {
             .flags = .{ .class = .Player, .moving = true, .visual = true },
             .position = position,
             .tint = c.GREEN,
+            .layer = .MoreSprites,
         };
     }
 
@@ -302,6 +304,7 @@ const GigaEntity = struct {
             .velocity = acceleration,
             .ttl = ttl,
             .tint = c.YELLOW,
+            .layer = .MoreSprites,
         };
     }
 };
@@ -723,13 +726,15 @@ pub fn main() !void {
             }
         }
 
-        {
+        inline for (@typeInfo(GigaEntity.Layer).@"enum".fields) |layer_field| {
+            const current_layer: GigaEntity.Layer = @enumFromInt(layer_field.value);
             var i: usize = 0;
             while (i < entity_manager.entities.len) : (i += 1) {
                 const flags = entity_manager.entities.items(.flags);
                 const position = entity_manager.entities.items(.position);
                 const tint = entity_manager.entities.items(.tint);
-                if (flags[i].visual) {
+                const layer = entity_manager.entities.items(.layer);
+                if (flags[i].visual and current_layer == layer[i]) {
                     if (flags[i].class == .Player) {
                         const player_sprite = sprite_manager.get(player_sprite_handle);
                         drawSprite(player_sprite, position[i], 0, tint[i], &texture_manager);
