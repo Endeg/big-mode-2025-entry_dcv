@@ -9,11 +9,10 @@ const util = @import("util.zig");
 //TODO: GPA allocator: dupeZ/free - possible bug
 
 // TODO: Audio assets - load/play
-// TODO: json config with hot-reloading
 // TODO: Main loop:
 //         + 1. read input;
 //         + 2. update game;
-//         + 3. render
+//         - 3. render (could not be necessary?)
 // TODO: Main game loop:
 //         1. Pick battery by walking to it
 //         2. Can't shoot while holding battery, when shoot - drops the battery.
@@ -400,11 +399,87 @@ const Input = struct {
     right: bool = false,
 };
 
+fn integratePhysics(
+    position: *c.Vector2,
+    acceleration: *c.Vector2,
+    velocity: *c.Vector2,
+    input: Input,
+    config: Config,
+    frame_messages: *std.ArrayList([]const u8),
+    frame_allocator: std.mem.Allocator,
+) !void {
+    if (c.Vector2Length(velocity.*) > 0 and c.Vector2Length(acceleration.*) > 0) {
+        // Decrease velocity if direction was changed
+        const vel_norm = c.Vector2Normalize(velocity.*);
+        const acc_norm = c.Vector2Normalize(acceleration.*);
+        const dot_product = c.Vector2DotProduct(vel_norm, acc_norm);
+        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+            frame_allocator,
+            "player.dot_product = {d:.4}.",
+            .{dot_product},
+        ));
+        if (dot_product < 0) {
+            velocity.* = c.Vector2Subtract(velocity.*, c.Vector2Scale(velocity.*, (1 - config.player_damping) * @abs(dot_product) * input.dt / config.player_mass));
+        }
+    }
+    if (BuggyPhysicsIntegration) {
+        const vt = c.Vector2Scale(velocity.*, input.dt);
+        const at = c.Vector2Scale(acceleration.*, input.dt * input.dt * 0.5);
+        velocity.* = c.Vector2Add(velocity.*, c.Vector2Add(vt, at));
+    } else {
+        velocity.* = c.Vector2Add(velocity.*, c.Vector2Scale(acceleration.*, input.dt));
+    }
+
+    if (c.Vector2Length(acceleration.*) == 0) {
+        velocity.* = c.Vector2Scale(velocity.*, config.player_damping);
+    }
+
+    velocity.* = c.Vector2ClampValue(velocity.*, 0, config.player_max_velocity);
+
+    //accelerate and stuff!
+
+    position.* = c.Vector2Add(position.*, c.Vector2Scale(velocity.*, input.dt));
+}
+
+const Config = struct {
+    player_acc_magnitude: f32 = 200,
+    player_damping: f32 = 0.8,
+    player_max_velocity: f32 = 100,
+    player_mass: f32 = 150,
+
+    const Self = @This();
+
+    pub fn load(directory: []const u8, file_name: []const u8, allocator: std.mem.Allocator) Self {
+        const config_json_content = util.readEntireFileAlloc(directory, file_name, allocator) catch |err| {
+            log.err("Problem reading config file ({!})! Will return default.", .{err});
+            return .{};
+        };
+        defer allocator.free(config_json_content);
+
+        const parse_result = std.json.parseFromSlice(Self, allocator, config_json_content, .{
+            .ignore_unknown_fields = true,
+        });
+
+        if (parse_result) |parsed| {
+            return parsed.value;
+        } else |err| {
+            log.err("Problem parsing config file ({!})! Will return default.", .{err});
+        }
+        return .{};
+    }
+};
+
+const BuggyPhysicsIntegration = false;
+
 pub fn main() !void {
+    var gpa = GPA{};
+
+    var config = Config.load(".", "config.json", gpa.allocator());
+
     c.InitWindow(1280, 720, "Unnamed Game Jam Entry");
     c.SetTargetFPS(60);
 
-    var gpa = GPA{};
+    var config_watcher = try util.FileWatcher.init(".", "config.json", 0.5);
 
     var texture_manager = try TextureManager.init(gpa.allocator());
     var sprite_manager = try SpriteManager.init(&texture_manager, gpa.allocator());
@@ -427,9 +502,7 @@ pub fn main() !void {
 
     var batteries_count: i32 = 20;
     while (batteries_count >= 0) : (batteries_count -= 1) {
-        //TODO: Battery creation function
-
-        const BatteriseDistribution = 100;
+        const BatteriseDistribution = 80;
 
         _ = entity_manager.createEntity(GigaEntity.battery(
             .{
@@ -469,6 +542,11 @@ pub fn main() !void {
             .right = c.IsKeyDown(c.KEY_D),
         };
 
+        if (config_watcher.wasModified(input.dt)) {
+            log.debug("Config was changed, reloading...", .{});
+            config = Config.load(".", "config.json", frame_allocator);
+        }
+
         if (entity_manager.entityField(player_handle, .position)) |player_position| {
             camera.target = c.Vector2Lerp(camera.target, player_position.*, 0.05);
         }
@@ -491,12 +569,6 @@ pub fn main() !void {
                 const sprite_handle = entity_manager.entities.items(.sprite_handle);
                 const tint = entity_manager.entities.items(.tint);
 
-                //TODO: Move hot-reloaded json config
-                const PlayerAccMagnitude: f32 = 200;
-                const PlayerDamping: f32 = 0.8;
-                const PlayerMaxVelocity: f32 = 100;
-                const PlayerMass: f32 = 150;
-
                 //TODO: Proper units: e.g. 16px - 1 meter or something.
 
                 //TODO: Start extracting to functions.
@@ -517,7 +589,7 @@ pub fn main() !void {
                         acceleration[i].y = 1;
                     }
 
-                    acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), PlayerAccMagnitude);
+                    acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.player_acc_magnitude);
                     //{[argument][specifier]:[fill][alignment][width].[precision]}`
                     frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
                         frame_allocator,
@@ -532,48 +604,15 @@ pub fn main() !void {
                 }
 
                 if (flags[i].moving) {
-                    if (c.Vector2Length(velocity[i]) > 0 and c.Vector2Length(acceleration[0]) > 0) {
-                        // Decrease velocity if direction was changed
-                        const vel_norm = c.Vector2Normalize(velocity[i]);
-                        const acc_norm = c.Vector2Normalize(acceleration[i]);
-                        const dot_product = c.Vector2DotProduct(vel_norm, acc_norm);
-                        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-                            frame_allocator,
-                            "player.dot_product = {d:.4}.",
-                            .{dot_product},
-                        ));
-                        if (dot_product < 0) {
-                            velocity[i] = c.Vector2Subtract(velocity[i], c.Vector2Scale(velocity[i], (1 - PlayerDamping) * @abs(dot_product) * input.dt / PlayerMass));
-                        }
-                    }
-
-                    // const vt = c.Vector2Scale(velocity[i], input.dt);
-                    // const at = c.Vector2Scale(acceleration[i], input.dt * input.dt * 0.5);
-                    // if (flags[i].class == .Player) {
-                    //     frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-                    //         frame_allocator,
-                    //         "player.vt = {d:.4}, {d:.4}.",
-                    //         .{ vt.x, vt.y },
-                    //     ));
-                    //     frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-                    //         frame_allocator,
-                    //         "player.at = {d:.4}, {d:.4}.",
-                    //         .{ at.x, at.y },
-                    //     ));
-                    // }
-                    // velocity[i] = c.Vector2Add(velocity[i], c.Vector2Add(vt, at));
-
-                    velocity[i] = c.Vector2Add(velocity[i], c.Vector2Scale(acceleration[i], input.dt));
-
-                    if (c.Vector2Length(acceleration[i]) == 0) {
-                        velocity[i] = c.Vector2Scale(velocity[i], PlayerDamping);
-                    }
-
-                    velocity[i] = c.Vector2ClampValue(velocity[i], 0, PlayerMaxVelocity);
-
-                    //accelerate and stuff!
-
-                    position[i] = c.Vector2Add(position[i], c.Vector2Scale(velocity[i], input.dt));
+                    try integratePhysics(
+                        &position[i],
+                        &acceleration[i],
+                        &velocity[i],
+                        input,
+                        config,
+                        &frame_messages,
+                        frame_allocator,
+                    );
                 }
 
                 if (flags[i].visual) {

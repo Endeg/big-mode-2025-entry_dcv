@@ -1,0 +1,7 @@
+{
+    "player_acc_magnitude": 200,
+    "player_damping": 0.8,
+    "player_max_velocity": 100,
+    "player_mass": 150,
+    "unknown_value": 22
+}
