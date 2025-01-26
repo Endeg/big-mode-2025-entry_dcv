@@ -237,6 +237,13 @@ fn drawSprite(
     );
 }
 
+const Layers = enum {
+    Background,
+    Sprites,
+    MoreSprites,
+    Foreground,
+};
+
 const GigaEntity = struct {
     handle: EntityManager.Handle = undefined,
     flags: Flags = undefined,
@@ -248,8 +255,6 @@ const GigaEntity = struct {
     shoot_info: ShootInfo = .{},
     ttl: f32 = 0,
 
-    //TODO: Draw entity depending on class and use some variation field to determine different visual for some classes
-    sprite_handle: SpriteManager.Handle = undefined,
     tint: c.Color = undefined,
 
     const Class = enum(u2) {
@@ -273,32 +278,29 @@ const GigaEntity = struct {
 
     const Self = @This();
 
-    pub fn player(position: c.Vector2, sprite_handle: SpriteManager.Handle) Self {
+    pub fn player(position: c.Vector2) Self {
         return .{
             .flags = .{ .class = .Player, .moving = true, .visual = true },
             .position = position,
-            .sprite_handle = sprite_handle,
             .tint = c.GREEN,
         };
     }
 
-    pub fn battery(position: c.Vector2, sprite_handle: SpriteManager.Handle) Self {
+    pub fn battery(position: c.Vector2) Self {
         return .{
             .flags = .{ .class = .Battery, .moving = true, .visual = true },
             .position = position,
-            .sprite_handle = sprite_handle,
             .tint = c.VIOLET,
         };
     }
 
-    pub fn projectile(position: c.Vector2, acceleration: c.Vector2, ttl: f32, sprite_handle: SpriteManager.Handle) Self {
+    pub fn projectile(position: c.Vector2, acceleration: c.Vector2, ttl: f32) Self {
         return .{
             .flags = .{ .class = .Projectile, .moving = true, .visual = true },
             .position = position,
             .acceleration = acceleration,
             .velocity = acceleration,
             .ttl = ttl,
-            .sprite_handle = sprite_handle,
             .tint = c.YELLOW,
         };
     }
@@ -546,7 +548,7 @@ pub fn main() !void {
     const projectile_sprite_handle = sprite_manager.find("projectile").?;
     const blaster_sprite_handle = sprite_manager.find("blaster").?;
 
-    const player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }, player_sprite_handle));
+    const player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
 
     var prng = std.Random.DefaultPrng.init(0x6969);
     var rng = prng.random();
@@ -560,7 +562,6 @@ pub fn main() !void {
                 .x = rng.floatNorm(f32) * BatteriseDistribution - BatteriseDistribution * 0.5,
                 .y = rng.floatNorm(f32) * BatteriseDistribution - BatteriseDistribution * 0.5,
             },
-            battery_sprite_handle,
         ));
     }
 
@@ -621,8 +622,6 @@ pub fn main() !void {
                 const position = entity_manager.entities.items(.position);
                 const acceleration = entity_manager.entities.items(.acceleration);
                 const velocity = entity_manager.entities.items(.velocity);
-                const sprite_handle = entity_manager.entities.items(.sprite_handle);
-                const tint = entity_manager.entities.items(.tint);
                 const shoot_info = entity_manager.entities.items(.shoot_info);
                 const ttl = entity_manager.entities.items(.ttl);
 
@@ -698,7 +697,6 @@ pub fn main() !void {
                             shoot_start_position,
                             c.Vector2Scale(shoot_direction, config.player_projectile_acceleration_magnitude),
                             config.player_projectile_ttl,
-                            projectile_sprite_handle,
                         ));
 
                         shoot_info[i].cooldown = config.player_shoot_cooldown;
@@ -709,12 +707,32 @@ pub fn main() !void {
                         .{shoot_info[i].cooldown},
                     ));
                 }
+            }
+        }
 
+        {
+            var i: usize = 0;
+            while (i < entity_manager.entities.len) {
+                const handle = entity_manager.entities.items(.handle);
+                const flags = entity_manager.entities.items(.flags);
+                if (!flags[i].alive) {
+                    entity_manager.removeEntity(handle[i]);
+                } else {
+                    i += 1;
+                }
+            }
+        }
+
+        {
+            var i: usize = 0;
+            while (i < entity_manager.entities.len) : (i += 1) {
+                const flags = entity_manager.entities.items(.flags);
+                const position = entity_manager.entities.items(.position);
+                const tint = entity_manager.entities.items(.tint);
                 if (flags[i].visual) {
-                    const sprite = sprite_manager.get(sprite_handle[i]);
-                    drawSprite(sprite, position[i], 0, tint[i], &texture_manager);
-
                     if (flags[i].class == .Player) {
+                        const player_sprite = sprite_manager.get(player_sprite_handle);
+                        drawSprite(player_sprite, position[i], 0, tint[i], &texture_manager);
                         const blaster_sprite = sprite_manager.get(blaster_sprite_handle);
 
                         const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
@@ -778,20 +796,13 @@ pub fn main() !void {
 
                             drawSprite(blaster_sprite, blaster_position, angle, c.DARKGREEN, &texture_manager);
                         }
+                    } else if (flags[i].class == .Battery) {
+                        const battery_sprite = sprite_manager.get(battery_sprite_handle);
+                        drawSprite(battery_sprite, position[i], 0, tint[i], &texture_manager);
+                    } else if (flags[i].class == .Projectile) {
+                        const projectile_sprite = sprite_manager.get(projectile_sprite_handle);
+                        drawSprite(projectile_sprite, position[i], 0, tint[i], &texture_manager);
                     }
-                }
-            }
-        }
-
-        {
-            var i: usize = 0;
-            while (i < entity_manager.entities.len) {
-                const handle = entity_manager.entities.items(.handle);
-                const flags = entity_manager.entities.items(.flags);
-                if (!flags[i].alive) {
-                    entity_manager.removeEntity(handle[i]);
-                } else {
-                    i += 1;
                 }
             }
         }
