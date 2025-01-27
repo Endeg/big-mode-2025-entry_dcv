@@ -275,6 +275,7 @@ const GigaEntity = struct {
         Player,
         Battery,
         Projectile,
+        Supostat,
     };
 
     const Flags = packed struct(u8) {
@@ -324,6 +325,15 @@ const GigaEntity = struct {
             .velocity = acceleration,
             .ttl = ttl,
             .tint = c.YELLOW,
+            .layer = .MoreSprites,
+        };
+    }
+
+    pub fn supostat(position: c.Vector2) Self {
+        return .{
+            .flags = .{ .class = .Supostat, .moving = true, .visual = true },
+            .position = position,
+            .tint = c.MAROON,
             .layer = .MoreSprites,
         };
     }
@@ -730,6 +740,9 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
                 } else if (flags[i].class == .Projectile) {
                     const projectile_sprite = sm.get(projectile_sprite_handle);
                     drawSprite(projectile_sprite, position[i], 0, tint[i], tm);
+                } else if (flags[i].class == .Supostat) {
+                    const monster_sprite = sm.get(monster_sprite_handle);
+                    drawSprite(monster_sprite, position[i], 0, tint[i], tm);
                 }
             }
         }
@@ -753,6 +766,7 @@ var player_sprite_handle: SpriteManager.Handle = undefined;
 var battery_sprite_handle: SpriteManager.Handle = undefined;
 var projectile_sprite_handle: SpriteManager.Handle = undefined;
 var blaster_sprite_handle: SpriteManager.Handle = undefined;
+var monster_sprite_handle: SpriteManager.Handle = undefined;
 
 pub fn main() !void {
     var gpa = GPA{};
@@ -789,22 +803,31 @@ pub fn main() !void {
     battery_sprite_handle = sprite_manager.find("battery").?;
     projectile_sprite_handle = sprite_manager.find("projectile").?;
     blaster_sprite_handle = sprite_manager.find("blaster").?;
+    monster_sprite_handle = sprite_manager.find("enemy0").?;
 
     const player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
 
     var prng = std.Random.DefaultPrng.init(0x6969);
     var rng = prng.random();
 
-    var batteries_count: i32 = 20;
-    while (batteries_count >= 0) : (batteries_count -= 1) {
-        const BatteriseDistribution = 80;
-
-        _ = entity_manager.createEntity(GigaEntity.battery(
-            .{
-                .x = rng.floatNorm(f32) * BatteriseDistribution - BatteriseDistribution * 0.5,
-                .y = rng.floatNorm(f32) * BatteriseDistribution - BatteriseDistribution * 0.5,
-            },
-        ));
+    var entities_to_spawn: i32 = 200;
+    while (entities_to_spawn >= 0) : (entities_to_spawn -= 1) {
+        const Distribution = 400;
+        if (rng.boolean() and rng.boolean()) {
+            _ = entity_manager.createEntity(GigaEntity.battery(
+                .{
+                    .x = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                    .y = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                },
+            ));
+        } else {
+            _ = entity_manager.createEntity(GigaEntity.supostat(
+                .{
+                    .x = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                    .y = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                },
+            ));
+        }
     }
 
     const screen_width: f32 = @floatFromInt(c.GetScreenWidth());
