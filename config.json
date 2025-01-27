@@ -1,4 +1,6 @@
 {
+    "general_radius": 8,
+    "general_center_from_bottom": 8,
     "camera_lerp_value": 0.05,
     "player_acc_magnitude": 200,
     "player_damping": 0.8,
@@ -11,5 +13,6 @@
     "player_projectile_acceleration_magnitude": 200,
     "player_projectile_damping": 1,
     "player_projectile_max_velocity": 500,
-    "player_projectile_ttl": 0.5
+    "player_projectile_ttl": 0.5,
+    "enemy_aggression_distance": 64
 }

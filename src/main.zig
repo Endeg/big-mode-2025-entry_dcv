@@ -267,6 +267,7 @@ const GigaEntity = struct {
 
     shoot_info: ShootInfo = .{},
     ttl: f32 = 0,
+    enemy_behavior: EnemyBehavior = .{},
 
     tint: c.Color = undefined,
     layer: Layer = .Sprites,
@@ -284,6 +285,18 @@ const GigaEntity = struct {
         visual: bool = false,
         alive: bool = true,
         pad: u3 = 0,
+    };
+
+    const EnemyBehavior = struct {
+        time_to_next: f32 = 0.0,
+        commit_to_direction: c.Vector2 = .{},
+        mode: Mode = .Loiter,
+
+        const Mode = enum {
+            Loiter,
+            Pursuit,
+            Avoid,
+        };
     };
 
     const ShootInfo = struct {
@@ -458,13 +471,18 @@ const Input = struct {
     shoot_right: bool = false,
 };
 
+const EntityPhysicsConfig = struct {
+    damping: f32,
+    max_velocity: f32,
+    mass: f32,
+};
+
 fn integratePhysics(
-    entity_class: GigaEntity.Class,
     position: *c.Vector2,
     acceleration: *c.Vector2,
     velocity: *c.Vector2,
     input: Input,
-    config: Config,
+    config: EntityPhysicsConfig,
 ) !void {
     if (c.Vector2Length(velocity.*) > 0 and c.Vector2Length(acceleration.*) > 0) {
         // Decrease velocity if direction was changed
@@ -472,7 +490,7 @@ fn integratePhysics(
         const acc_norm = c.Vector2Normalize(acceleration.*);
         const dot_product = c.Vector2DotProduct(vel_norm, acc_norm);
         if (dot_product < 0) {
-            velocity.* = c.Vector2Subtract(velocity.*, c.Vector2Scale(velocity.*, (1 - config.player_damping) * @abs(dot_product) * input.dt / config.player_mass));
+            velocity.* = c.Vector2Subtract(velocity.*, c.Vector2Scale(velocity.*, (1 - config.damping) * @abs(dot_product) * input.dt / config.mass));
         }
     }
     if (BuggyPhysicsIntegration) {
@@ -483,27 +501,11 @@ fn integratePhysics(
         velocity.* = c.Vector2Add(velocity.*, c.Vector2Scale(acceleration.*, input.dt));
     }
 
-    var damping: f32 = 0;
-    var max_velocity: f32 = 0;
-    switch (entity_class) {
-        .Player => {
-            damping = config.player_damping;
-            max_velocity = config.player_max_velocity;
-        },
-        .Projectile => {
-            damping = config.player_projectile_damping;
-            max_velocity = config.player_projectile_max_velocity;
-        },
-        else => {},
-    }
-
     if (c.Vector2Length(acceleration.*) == 0) {
-        velocity.* = c.Vector2Scale(velocity.*, damping);
+        velocity.* = c.Vector2Scale(velocity.*, config.damping);
     }
 
-    velocity.* = c.Vector2ClampValue(velocity.*, 0, max_velocity);
-
-    //accelerate and stuff!
+    velocity.* = c.Vector2ClampValue(velocity.*, 0, config.max_velocity);
 
     position.* = c.Vector2Add(position.*, c.Vector2Scale(velocity.*, input.dt));
 }
@@ -511,6 +513,8 @@ fn integratePhysics(
 const Config = struct {
     camera_lerp_value: f32 = 0.05,
     player_acc_magnitude: f32 = 200,
+    general_radius: f32 = 8,
+    general_center_from_bottom: f32 = 8,
     player_damping: f32 = 0.8,
     player_max_velocity: f32 = 100,
     player_mass: f32 = 150,
@@ -522,6 +526,11 @@ const Config = struct {
     player_projectile_damping: f32 = 1,
     player_projectile_max_velocity: f32 = 800,
     player_projectile_ttl: f32 = 0.8,
+    enemy_loiter_time: f32 = 3,
+    enemy_aggression_distance: f32 = 200,
+    enemy_damping: f32 = 0.9,
+    enemy_max_velocity: f32 = 90,
+    enemy_mass: f32 = 300,
 
     const Self = @This();
 
@@ -563,6 +572,8 @@ fn update(
     config: Config,
     frame_messages: *std.ArrayList([]const u8),
     frame_allocator: std.mem.Allocator,
+    rng: *std.Random,
+    player_position: c.Vector2,
 ) !void {
     var i: usize = 0;
     while (i < em.entities.len) : (i += 1) {
@@ -572,6 +583,7 @@ fn update(
         const velocity = em.entities.items(.velocity);
         const shoot_info = em.entities.items(.shoot_info);
         const ttl = em.entities.items(.ttl);
+        const enemy_behavior = em.entities.items(.enemy_behavior);
 
         //TODO: Proper units: e.g. 16px - 1 meter or something.
 
@@ -596,18 +608,85 @@ fn update(
             if (ttl[i] == 0) {
                 flags[i].alive = false;
             }
+        } else if (flags[i].class == .Supostat) {
+            if (c.Vector2Distance(player_position, position[i]) <= config.enemy_aggression_distance) {
+                enemy_behavior[i].mode = .Pursuit;
+            } else {
+                enemy_behavior[i].mode = .Loiter;
+            }
+
+            switch (enemy_behavior[i].mode) {
+                .Loiter => {
+                    enemy_behavior[i].time_to_next -= input.dt;
+
+                    if (enemy_behavior[i].time_to_next <= 0) {
+                        enemy_behavior[i].time_to_next = rng.float(f32) * config.enemy_loiter_time;
+                        enemy_behavior[i].commit_to_direction.x = ((rng.floatExp(f32) * 2) - 1);
+                        enemy_behavior[i].commit_to_direction.y = ((rng.floatExp(f32) * 2) - 1);
+                    }
+                },
+                .Pursuit => {
+                    enemy_behavior[i].commit_to_direction = .{};
+                    if (player_position.y > position[i].y) {
+                        enemy_behavior[i].commit_to_direction.y = 1;
+                    } else if (player_position.y < position[i].y) {
+                        enemy_behavior[i].commit_to_direction.y = -1;
+                    }
+                    if (player_position.x > position[i].x) {
+                        enemy_behavior[i].commit_to_direction.x = 1;
+                    } else if (player_position.x < position[i].x) {
+                        enemy_behavior[i].commit_to_direction.x = -1;
+                    }
+                },
+                .Avoid => {
+                    enemy_behavior[i].commit_to_direction = .{};
+                    if (player_position.y > position[i].y) {
+                        enemy_behavior[i].commit_to_direction.y = -1;
+                    } else if (player_position.y < position[i].y) {
+                        enemy_behavior[i].commit_to_direction.y = 1;
+                    }
+                    if (player_position.x > position[i].x) {
+                        enemy_behavior[i].commit_to_direction.x = -1;
+                    } else if (player_position.x < position[i].x) {
+                        enemy_behavior[i].commit_to_direction.x = 1;
+                    }
+                },
+            }
+
+            enemy_behavior[i].commit_to_direction = c.Vector2Normalize(enemy_behavior[i].commit_to_direction);
+
+            //TODO: Enemy stuff
+            acceleration[i] = enemy_behavior[i].commit_to_direction;
+            //TODO: Proper config
+            acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.player_acc_magnitude);
         }
 
         if (flags[i].moving) {
             const initial_position = position[i];
-            try integratePhysics(
-                flags[i].class,
-                &position[i],
-                &acceleration[i],
-                &velocity[i],
-                input,
-                config,
-            );
+            const physics_config: EntityPhysicsConfig = switch (flags[i].class) {
+                .Player => .{
+                    .damping = config.player_damping,
+                    .max_velocity = config.player_max_velocity,
+                    .mass = config.player_mass,
+                },
+                .Projectile => .{
+                    .damping = config.player_projectile_damping,
+                    .max_velocity = config.player_projectile_max_velocity,
+                    .mass = 0,
+                },
+                .Supostat => .{
+                    .damping = config.enemy_damping,
+                    .max_velocity = config.enemy_max_velocity,
+                    .mass = config.enemy_mass,
+                },
+                else => .{
+                    .damping = 0,
+                    .max_velocity = 0,
+                    .mass = 0,
+                },
+            };
+
+            try integratePhysics(&position[i], &acceleration[i], &velocity[i], input, physics_config);
 
             if (flags[i].class == .Player) {
                 const frame_distance = c.Vector2Distance(initial_position, position[i]);
@@ -810,7 +889,7 @@ pub fn main() !void {
     var prng = std.Random.DefaultPrng.init(0x6969);
     var rng = prng.random();
 
-    var entities_to_spawn: i32 = 200;
+    var entities_to_spawn: i32 = 400;
     while (entities_to_spawn >= 0) : (entities_to_spawn -= 1) {
         const Distribution = 400;
         if (rng.boolean() and rng.boolean()) {
@@ -874,8 +953,10 @@ pub fn main() !void {
             }
         }
 
+        var player_position_for_pursuit = c.Vector2{};
         if (entity_manager.entityField(player_handle, .position)) |player_position| {
             camera.target = c.Vector2Lerp(camera.target, player_position.*, config.camera_lerp_value);
+            player_position_for_pursuit = player_position.*;
         }
 
         c.BeginDrawing();
@@ -885,7 +966,15 @@ pub fn main() !void {
 
         c.ClearBackground(c.BLACK);
 
-        try update(&entity_manager, input, config, &frame_messages, frame_allocator);
+        try update(
+            &entity_manager,
+            input,
+            config,
+            &frame_messages,
+            frame_allocator,
+            &rng,
+            player_position_for_pursuit,
+        );
         cleanupEntities(&entity_manager);
         render(&entity_manager, &sprite_manager, &texture_manager, input, config);
 
