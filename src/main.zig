@@ -499,6 +499,7 @@ fn integratePhysics(
 }
 
 const Config = struct {
+    camera_lerp_value: f32 = 0.05,
     player_acc_magnitude: f32 = 200,
     player_damping: f32 = 0.8,
     player_max_velocity: f32 = 100,
@@ -514,10 +515,10 @@ const Config = struct {
 
     const Self = @This();
 
-    pub fn load(directory: []const u8, file_name: []const u8, allocator: std.mem.Allocator) Self {
+    pub fn load(directory: []const u8, file_name: []const u8, allocator: std.mem.Allocator) ?Self {
         const config_json_content = util.readEntireFileAlloc(directory, file_name, allocator) catch |err| {
-            log.err("Problem reading config file ({!})! Will return default.", .{err});
-            return .{};
+            log.err("Problem reading config file ({!})!", .{err});
+            return null;
         };
         defer allocator.free(config_json_content);
 
@@ -529,9 +530,9 @@ const Config = struct {
             defer parsed.deinit();
             return parsed.value;
         } else |err| {
-            log.err("Problem parsing config file ({!})! Will return default.", .{err});
+            log.err("Problem parsing config file ({!})!", .{err});
         }
-        return .{};
+        return null;
     }
 };
 
@@ -546,6 +547,213 @@ pub fn determineDirection(up: bool, down: bool, left: bool, right: bool) c.Vecto
     return c.Vector2Normalize(result);
 }
 
+fn update(
+    em: *EntityManager,
+    input: Input,
+    config: Config,
+    frame_messages: *std.ArrayList([]const u8),
+    frame_allocator: std.mem.Allocator,
+) !void {
+    var i: usize = 0;
+    while (i < em.entities.len) : (i += 1) {
+        const flags = em.entities.items(.flags);
+        const position = em.entities.items(.position);
+        const acceleration = em.entities.items(.acceleration);
+        const velocity = em.entities.items(.velocity);
+        const shoot_info = em.entities.items(.shoot_info);
+        const ttl = em.entities.items(.ttl);
+
+        //TODO: Proper units: e.g. 16px - 1 meter or something.
+
+        //TODO: Start extracting to functions.
+
+        if (flags[i].class == .Player) {
+            acceleration[i] = determineDirection(input.up, input.down, input.left, input.right);
+
+            acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.player_acc_magnitude);
+            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                frame_allocator,
+                "player.acceleration = {d:.4}, {d:.4}.",
+                .{ acceleration[i].x, acceleration[i].y },
+            ));
+            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                frame_allocator,
+                "player.velocity = {d:.4}, {d:.4}.",
+                .{ velocity[i].x, velocity[i].y },
+            ));
+        } else if (flags[i].class == .Projectile) {
+            ttl[i] = @max(ttl[i] - input.dt, 0);
+            if (ttl[i] == 0) {
+                flags[i].alive = false;
+            }
+        }
+
+        if (flags[i].moving) {
+            const initial_position = position[i];
+            try integratePhysics(
+                flags[i].class,
+                &position[i],
+                &acceleration[i],
+                &velocity[i],
+                input,
+                config,
+            );
+
+            if (flags[i].class == .Player) {
+                const frame_distance = c.Vector2Distance(initial_position, position[i]);
+                frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                    frame_allocator,
+                    "player.frame_distance = {d:.4}.",
+                    .{frame_distance},
+                ));
+            }
+        }
+
+        if (flags[i].class == .Player) {
+            if (shoot_info[i].cooldown > 0) {
+                shoot_info[i].cooldown = std.math.clamp(shoot_info[i].cooldown - input.dt, 0, config.player_shoot_cooldown);
+            }
+
+            const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
+            if (is_shooting and shoot_info[i].cooldown <= 0) {
+                const shoot_direction = determineDirection(
+                    input.shoot_up,
+                    input.shoot_down,
+                    input.shoot_left,
+                    input.shoot_right,
+                );
+
+                const shoot_start_position = c.Vector2Add(
+                    c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
+                    c.Vector2Add(
+                        position[i],
+                        c.Vector2Scale(shoot_direction, config.player_shoot_start_distance),
+                    ),
+                );
+
+                _ = em.createEntity(GigaEntity.projectile(
+                    shoot_start_position,
+                    c.Vector2Scale(shoot_direction, config.player_projectile_acceleration_magnitude),
+                    config.player_projectile_ttl,
+                ));
+
+                shoot_info[i].cooldown = config.player_shoot_cooldown;
+            }
+            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                frame_allocator,
+                "player.shoot_cooldown = {d:.4}.",
+                .{shoot_info[i].cooldown},
+            ));
+        }
+    }
+}
+
+fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: Input, config: Config) void {
+    inline for (@typeInfo(GigaEntity.Layer).@"enum".fields) |layer_field| {
+        const current_layer: GigaEntity.Layer = @enumFromInt(layer_field.value);
+        var i: usize = 0;
+        while (i < em.entities.len) : (i += 1) {
+            const flags = em.entities.items(.flags);
+            const position = em.entities.items(.position);
+            const tint = em.entities.items(.tint);
+            const layer = em.entities.items(.layer);
+            if (flags[i].visual and current_layer == layer[i]) {
+                if (flags[i].class == .Player) {
+                    const player_sprite = sm.get(player_sprite_handle);
+                    drawSprite(player_sprite, position[i], 0, tint[i], tm);
+                    const blaster_sprite = sm.get(blaster_sprite_handle);
+
+                    const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
+                    if (is_shooting) {
+                        const shoot_direction = determineDirection(
+                            input.shoot_up,
+                            input.shoot_down,
+                            input.shoot_left,
+                            input.shoot_right,
+                        );
+
+                        const blaster_position = c.Vector2Add(
+                            c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
+                            c.Vector2Add(
+                                position[i],
+                                c.Vector2Scale(shoot_direction, config.player_blaster_distance),
+                            ),
+                        );
+
+                        // Can't figure out how to get direction vector's angle
+                        // and to not waste time, here's the solution.
+
+                        const Angles = [_]f32{
+                            0 * 45, //       Right
+                            1 * 45, // Down  Right
+                            2 * 45, // Down
+                            3 * 45, // Down  Left
+                            4 * 45, //       Left
+                            5 * 45, // Up    Left
+                            6 * 45, // Up
+                            7 * 45, // Up    Right
+                        };
+
+                        var angle_index: usize = 0;
+
+                        if (input.shoot_up and input.shoot_right) {
+                            angle_index = 7;
+                        } else if (input.shoot_up and input.shoot_left) {
+                            angle_index = 5;
+                        } else if (input.shoot_down and input.shoot_right) {
+                            angle_index = 1;
+                        } else if (input.shoot_down and input.shoot_left) {
+                            angle_index = 3;
+                        } else if (input.shoot_up) {
+                            angle_index = 6;
+                        } else if (input.shoot_down) {
+                            angle_index = 2;
+                        } else if (input.shoot_left) {
+                            angle_index = 4;
+                        } else if (input.shoot_right) {
+                            angle_index = 0;
+                        }
+
+                        const angle = Angles[angle_index];
+
+                        // frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                        //     frame_allocator,
+                        //     "player.blaster_angle = {d:.4}.",
+                        //     .{angle},
+                        // ));
+
+                        drawSprite(blaster_sprite, blaster_position, angle, c.DARKGREEN, tm);
+                    }
+                } else if (flags[i].class == .Battery) {
+                    const battery_sprite = sm.get(battery_sprite_handle);
+                    drawSprite(battery_sprite, position[i], 0, tint[i], tm);
+                } else if (flags[i].class == .Projectile) {
+                    const projectile_sprite = sm.get(projectile_sprite_handle);
+                    drawSprite(projectile_sprite, position[i], 0, tint[i], tm);
+                }
+            }
+        }
+    }
+}
+
+fn cleanupEntities(em: *EntityManager) void {
+    var i: usize = 0;
+    while (i < em.entities.len) {
+        const handle = em.entities.items(.handle);
+        const flags = em.entities.items(.flags);
+        if (!flags[i].alive) {
+            em.removeEntity(handle[i]);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+var player_sprite_handle: SpriteManager.Handle = undefined;
+var battery_sprite_handle: SpriteManager.Handle = undefined;
+var projectile_sprite_handle: SpriteManager.Handle = undefined;
+var blaster_sprite_handle: SpriteManager.Handle = undefined;
+
 pub fn main() !void {
     var gpa = GPA{};
 
@@ -553,7 +761,10 @@ pub fn main() !void {
         log.err("Oh no! Memory leaks happened!", .{});
     };
 
-    var config = Config.load(".", "config.json", gpa.allocator());
+    var config: Config = .{};
+    if (Config.load(".", "config.json", gpa.allocator())) |loaded_config| {
+        config = loaded_config;
+    }
 
     c.InitWindow(1280, 720, "Unnamed Game Jam Entry");
     c.SetTargetFPS(60);
@@ -574,10 +785,10 @@ pub fn main() !void {
     var entity_manager = try EntityManager.init(gpa.allocator());
     defer entity_manager.deinit();
 
-    const player_sprite_handle = sprite_manager.find("main-guy").?;
-    const battery_sprite_handle = sprite_manager.find("battery").?;
-    const projectile_sprite_handle = sprite_manager.find("projectile").?;
-    const blaster_sprite_handle = sprite_manager.find("blaster").?;
+    player_sprite_handle = sprite_manager.find("main-guy").?;
+    battery_sprite_handle = sprite_manager.find("battery").?;
+    projectile_sprite_handle = sprite_manager.find("projectile").?;
+    blaster_sprite_handle = sprite_manager.find("blaster").?;
 
     const player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
 
@@ -633,11 +844,15 @@ pub fn main() !void {
 
         if (config_watcher.wasModified(input.dt)) {
             log.debug("Config was changed, reloading...", .{});
-            config = Config.load(".", "config.json", frame_allocator);
+            if (Config.load(".", "config.json", frame_allocator)) |loaded_config| {
+                config = loaded_config;
+            } else {
+                log.err("Config was not updated!", .{});
+            }
         }
 
         if (entity_manager.entityField(player_handle, .position)) |player_position| {
-            camera.target = c.Vector2Lerp(camera.target, player_position.*, 0.05);
+            camera.target = c.Vector2Lerp(camera.target, player_position.*, config.camera_lerp_value);
         }
 
         c.BeginDrawing();
@@ -647,200 +862,9 @@ pub fn main() !void {
 
         c.ClearBackground(c.BLACK);
 
-        c.DrawLine(0, 700, 1280, 700, c.DARKBROWN);
-        {
-            var i: usize = 0;
-            while (i < entity_manager.entities.len) : (i += 1) {
-                const flags = entity_manager.entities.items(.flags);
-                const position = entity_manager.entities.items(.position);
-                const acceleration = entity_manager.entities.items(.acceleration);
-                const velocity = entity_manager.entities.items(.velocity);
-                const shoot_info = entity_manager.entities.items(.shoot_info);
-                const ttl = entity_manager.entities.items(.ttl);
-
-                //TODO: Proper units: e.g. 16px - 1 meter or something.
-
-                //TODO: Start extracting to functions.
-
-                if (flags[i].class == .Player) {
-                    acceleration[i] = determineDirection(input.up, input.down, input.left, input.right);
-
-                    acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.player_acc_magnitude);
-                    frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-                        frame_allocator,
-                        "player.acceleration = {d:.4}, {d:.4}.",
-                        .{ acceleration[i].x, acceleration[i].y },
-                    ));
-                    frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-                        frame_allocator,
-                        "player.velocity = {d:.4}, {d:.4}.",
-                        .{ velocity[i].x, velocity[i].y },
-                    ));
-                } else if (flags[i].class == .Projectile) {
-                    ttl[i] = @max(ttl[i] - input.dt, 0);
-                    if (ttl[i] == 0) {
-                        flags[i].alive = false;
-                    }
-                }
-
-                if (flags[i].moving) {
-                    const initial_position = position[i];
-                    try integratePhysics(
-                        flags[i].class,
-                        &position[i],
-                        &acceleration[i],
-                        &velocity[i],
-                        input,
-                        config,
-                    );
-
-                    if (flags[i].class == .Player) {
-                        const frame_distance = c.Vector2Distance(initial_position, position[i]);
-                        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-                            frame_allocator,
-                            "player.frame_distance = {d:.4}.",
-                            .{frame_distance},
-                        ));
-                    }
-                }
-
-                if (flags[i].class == .Player) {
-                    if (shoot_info[i].cooldown > 0) {
-                        shoot_info[i].cooldown = std.math.clamp(shoot_info[i].cooldown - input.dt, 0, config.player_shoot_cooldown);
-                    }
-
-                    const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
-                    if (is_shooting and shoot_info[i].cooldown <= 0) {
-                        const shoot_direction = determineDirection(
-                            input.shoot_up,
-                            input.shoot_down,
-                            input.shoot_left,
-                            input.shoot_right,
-                        );
-
-                        const shoot_start_position = c.Vector2Add(
-                            c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
-                            c.Vector2Add(
-                                position[i],
-                                c.Vector2Scale(shoot_direction, config.player_shoot_start_distance),
-                            ),
-                        );
-
-                        _ = entity_manager.createEntity(GigaEntity.projectile(
-                            shoot_start_position,
-                            c.Vector2Scale(shoot_direction, config.player_projectile_acceleration_magnitude),
-                            config.player_projectile_ttl,
-                        ));
-
-                        shoot_info[i].cooldown = config.player_shoot_cooldown;
-                    }
-                    frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-                        frame_allocator,
-                        "player.shoot_cooldown = {d:.4}.",
-                        .{shoot_info[i].cooldown},
-                    ));
-                }
-            }
-        }
-
-        {
-            var i: usize = 0;
-            while (i < entity_manager.entities.len) {
-                const handle = entity_manager.entities.items(.handle);
-                const flags = entity_manager.entities.items(.flags);
-                if (!flags[i].alive) {
-                    entity_manager.removeEntity(handle[i]);
-                } else {
-                    i += 1;
-                }
-            }
-        }
-
-        inline for (@typeInfo(GigaEntity.Layer).@"enum".fields) |layer_field| {
-            const current_layer: GigaEntity.Layer = @enumFromInt(layer_field.value);
-            var i: usize = 0;
-            while (i < entity_manager.entities.len) : (i += 1) {
-                const flags = entity_manager.entities.items(.flags);
-                const position = entity_manager.entities.items(.position);
-                const tint = entity_manager.entities.items(.tint);
-                const layer = entity_manager.entities.items(.layer);
-                if (flags[i].visual and current_layer == layer[i]) {
-                    if (flags[i].class == .Player) {
-                        const player_sprite = sprite_manager.get(player_sprite_handle);
-                        drawSprite(player_sprite, position[i], 0, tint[i], &texture_manager);
-                        const blaster_sprite = sprite_manager.get(blaster_sprite_handle);
-
-                        const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
-                        if (is_shooting) {
-                            const shoot_direction = determineDirection(
-                                input.shoot_up,
-                                input.shoot_down,
-                                input.shoot_left,
-                                input.shoot_right,
-                            );
-
-                            const blaster_position = c.Vector2Add(
-                                c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
-                                c.Vector2Add(
-                                    position[i],
-                                    c.Vector2Scale(shoot_direction, config.player_blaster_distance),
-                                ),
-                            );
-
-                            // Can't figure out how to get direction vector's angle
-                            // and to not waste time, here's the solution.
-
-                            const Angles = [_]f32{
-                                0 * 45, //       Right
-                                1 * 45, // Down  Right
-                                2 * 45, // Down
-                                3 * 45, // Down  Left
-                                4 * 45, //       Left
-                                5 * 45, // Up    Left
-                                6 * 45, // Up
-                                7 * 45, // Up    Right
-                            };
-
-                            var angle_index: usize = 0;
-
-                            if (input.shoot_up and input.shoot_right) {
-                                angle_index = 7;
-                            } else if (input.shoot_up and input.shoot_left) {
-                                angle_index = 5;
-                            } else if (input.shoot_down and input.shoot_right) {
-                                angle_index = 1;
-                            } else if (input.shoot_down and input.shoot_left) {
-                                angle_index = 3;
-                            } else if (input.shoot_up) {
-                                angle_index = 6;
-                            } else if (input.shoot_down) {
-                                angle_index = 2;
-                            } else if (input.shoot_left) {
-                                angle_index = 4;
-                            } else if (input.shoot_right) {
-                                angle_index = 0;
-                            }
-
-                            const angle = Angles[angle_index];
-
-                            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-                                frame_allocator,
-                                "player.blaster_angle = {d:.4}.",
-                                .{angle},
-                            ));
-
-                            drawSprite(blaster_sprite, blaster_position, angle, c.DARKGREEN, &texture_manager);
-                        }
-                    } else if (flags[i].class == .Battery) {
-                        const battery_sprite = sprite_manager.get(battery_sprite_handle);
-                        drawSprite(battery_sprite, position[i], 0, tint[i], &texture_manager);
-                    } else if (flags[i].class == .Projectile) {
-                        const projectile_sprite = sprite_manager.get(projectile_sprite_handle);
-                        drawSprite(projectile_sprite, position[i], 0, tint[i], &texture_manager);
-                    }
-                }
-            }
-        }
+        try update(&entity_manager, input, config, &frame_messages, frame_allocator);
+        cleanupEntities(&entity_manager);
+        render(&entity_manager, &sprite_manager, &texture_manager, input, config);
 
         frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
             frame_allocator,
