@@ -17,7 +17,7 @@ const util = @import("util.zig");
 //         1. Pick battery by walking to it
 //         2. Can't shoot while holding battery, when shoot - drops the battery.
 //        +3. Shooting by holding IJKL.
-//         4. There's enemies. To simplify:
+//        >4. There's enemies. To simplify:
 //              - semi-randomly walking to the player
 //              - some can shoot
 //         5. When all batteries collected - walk to the rocket, and go to next level.
@@ -27,6 +27,7 @@ const util = @import("util.zig");
 //         3. Audio.
 //         4. Some fancy effects.
 //         5. Blaster animation, use cooldown timer.
+//         6. Trees, bushes and roads to have background.
 // TODO: Gamepad support
 
 const Json = struct {
@@ -64,6 +65,16 @@ const TextureManager = struct {
             .texture_file_names = texture_file_names,
             .allocator = allocator,
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        var name_iter = self.texture_file_names.keyIterator();
+        while (name_iter.next()) |name| {
+            self.allocator.free(name.*);
+        }
+
+        self.texture_file_names.deinit(self.allocator);
+        self.textures.deinit(self.allocator);
     }
 
     pub fn fetchHandle(self: *Self, file_name: []const u8) !Handle {
@@ -146,6 +157,15 @@ const SpriteManager = struct {
             .sprites = try std.ArrayListUnmanaged(Sprite).initCapacity(allocator, ElementsCount),
             .allocator = allocator,
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        var name_it = self.sprite_names.keyIterator();
+        while (name_it.next()) |name| {
+            self.allocator.free(name.*);
+        }
+        self.sprite_names.deinit(self.allocator);
+        self.sprites.deinit(self.allocator);
     }
 
     pub fn loadFromJson(self: *Self, json_data: []const u8) !void {
@@ -506,6 +526,7 @@ const Config = struct {
         });
 
         if (parse_result) |parsed| {
+            defer parsed.deinit();
             return parsed.value;
         } else |err| {
             log.err("Problem parsing config file ({!})! Will return default.", .{err});
@@ -528,6 +549,10 @@ pub fn determineDirection(up: bool, down: bool, left: bool, right: bool) c.Vecto
 pub fn main() !void {
     var gpa = GPA{};
 
+    defer if (gpa.deinit() == .leak) {
+        log.err("Oh no! Memory leaks happened!", .{});
+    };
+
     var config = Config.load(".", "config.json", gpa.allocator());
 
     c.InitWindow(1280, 720, "Unnamed Game Jam Entry");
@@ -536,7 +561,9 @@ pub fn main() !void {
     var config_watcher = try util.FileWatcher.init(".", "config.json", 0.5);
 
     var texture_manager = try TextureManager.init(gpa.allocator());
+    defer texture_manager.deinit();
     var sprite_manager = try SpriteManager.init(&texture_manager, gpa.allocator());
+    defer sprite_manager.deinit();
     {
         const allocator = gpa.allocator();
         const sprites_json_content = try util.readEntireFileAlloc(".", "sprites.json", allocator);
@@ -545,6 +572,7 @@ pub fn main() !void {
     }
 
     var entity_manager = try EntityManager.init(gpa.allocator());
+    defer entity_manager.deinit();
 
     const player_sprite_handle = sprite_manager.find("main-guy").?;
     const battery_sprite_handle = sprite_manager.find("battery").?;
@@ -579,7 +607,9 @@ pub fn main() !void {
     };
 
     var frame_messages = try std.ArrayList([]const u8).initCapacity(gpa.allocator(), 128);
+    defer frame_messages.deinit();
     const frame_memory = try gpa.allocator().alloc(u8, 1 * 1024 * 1024);
+    defer gpa.allocator().free(frame_memory);
 
     var frame_fba = std.heap.FixedBufferAllocator.init(frame_memory);
     var frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());

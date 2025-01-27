@@ -14,5 +14,9 @@
     "blaster": {
         "image": "tile-38x9.png",
         "origin": {"x": 0.2, "y": 0.4}
+    },
+    "enemy0": {
+        "image": "tile-28x6.png",
+        "origin": {"x": 0.5, "y": 1}
     }
 }
