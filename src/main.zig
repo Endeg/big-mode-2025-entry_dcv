@@ -265,6 +265,7 @@ const GigaEntity = struct {
     acceleration: c.Vector2 = .{},
     velocity: c.Vector2 = .{},
     health: i8 = 100,
+    iframes: f32 = 0,
 
     shoot_info: ShootInfo = .{},
     ttl: f32 = 0,
@@ -372,6 +373,33 @@ const GigaEntity = struct {
             .tint = c.MAROON,
             .layer = .MoreSprites,
         };
+    }
+};
+
+const GameManager = struct {
+    state: State = .Playing,
+    respawn_time: f32 = 0,
+
+    const Self = @This();
+
+    const State = enum {
+        Playing,
+        RespawnScreen,
+        ReadyToRespawn,
+    };
+
+    pub fn startRespawnCounter(self: *Self) void {
+        self.respawn_time = 3;
+        self.state = .RespawnScreen;
+    }
+
+    pub fn update(self: *Self, input: Input) void {
+        if (self.state == .RespawnScreen) {
+            self.respawn_time = @max(self.respawn_time - input.dt, 0);
+            if (self.respawn_time <= 0) {
+                self.state = .ReadyToRespawn;
+            }
+        }
     }
 };
 
@@ -554,10 +582,13 @@ const Config = struct {
     enemy_loiter_time: f32 = 3,
     enemy_aggression_distance: f32 = 200,
     enemy_damping: f32 = 0.9,
+    enemy_acc_magnitude: f32 = 100,
     enemy_max_velocity: f32 = 90,
     enemy_mass: f32 = 300,
     enemy_pursuit_dispersal: f32 = 50,
     damage_inertia_factor: f32 = 0.5,
+    iframes: f32 = 2,
+    damage_animation_speed: f32 = 10,
 
     const Self = @This();
 
@@ -594,6 +625,7 @@ pub fn determineDirection(up: bool, down: bool, left: bool, right: bool) c.Vecto
 }
 
 fn update(
+    game_manager: *GameManager,
     em: *EntityManager,
     input: Input,
     config: Config,
@@ -612,6 +644,7 @@ fn update(
         const ttl = em.entities.items(.ttl);
         const enemy_behavior = em.entities.items(.enemy_behavior);
         const damage_animation = em.entities.items(.damage_animation);
+        const iframes = em.entities.items(.iframes);
 
         //TODO: Proper units: e.g. 16px - 1 meter or something.
 
@@ -657,8 +690,8 @@ fn update(
                     enemy_behavior[i].commit_to_direction = .{};
 
                     const actual_target_position = c.Vector2{
-                        .x = player_position.x + (rng.floatNorm(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.4,
-                        .y = player_position.y + (rng.floatNorm(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.4,
+                        .x = player_position.x + (rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
+                        .y = player_position.y + (rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
                     };
 
                     if (actual_target_position.y > position[i].y) {
@@ -692,7 +725,7 @@ fn update(
             //TODO: Enemy stuff
             acceleration[i] = enemy_behavior[i].commit_to_direction;
             //TODO: Proper config
-            acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.player_acc_magnitude);
+            acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.enemy_acc_magnitude);
         }
 
         if (flags[i].moving) {
@@ -770,7 +803,17 @@ fn update(
         }
 
         if (damage_animation[i] > 0) {
-            damage_animation[i] = @min(damage_animation[i] - input.dt, 0);
+            damage_animation[i] = @max(damage_animation[i] - input.dt * config.damage_animation_speed, 0);
+        }
+
+        if (iframes[i] > 0) {
+            iframes[i] = @max(iframes[i] - input.dt, 0);
+        }
+
+        if (flags[i].class == .Player) {
+            frame_messages.appendAssumeCapacity(
+                try std.fmt.allocPrintZ(frame_allocator, "player.iframes = {d:.4}.", .{iframes[i]}),
+            );
         }
     }
 
@@ -781,6 +824,7 @@ fn update(
         const velocity = em.entities.items(.velocity);
         const health = em.entities.items(.health);
         const damage_animation = em.entities.items(.damage_animation);
+        const iframes = em.entities.items(.iframes);
         var j: usize = 0;
         while (j < em.entities.len) : (j += 1) {
             if (i != j and flags[i].alive and flags[i].collideable) {
@@ -798,6 +842,27 @@ fn update(
                             flags[j].alive = false;
 
                             //TODO: Death animation/sound
+                        }
+                    }
+                } else if (flags[i].class == .Supostat and flags[j].class == .Player) {
+                    const real_position_s = c.Vector2Add(position[i], .{ .y = -config.general_center_from_bottom });
+                    const real_position_p = c.Vector2Add(position[j], .{ .y = -config.general_center_from_bottom });
+
+                    if (c.Vector2Distance(real_position_s, real_position_p) <= config.general_radius * 2) {
+                        //TODO: config.damage_inertia_factor * 0.2 - to config
+                        velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor * 0.2));
+                        if (iframes[j] <= 0) {
+                            health[j] -= config.general_damage;
+                            damage_animation[j] = 1;
+                            iframes[j] = config.iframes;
+
+                            //TODO: Some particles
+
+                            if (health[j] <= 0) {
+                                flags[j].alive = false;
+                                game_manager.startRespawnCounter();
+                                //TODO: Death animation/sound
+                            }
                         }
                     }
                 }
@@ -819,7 +884,10 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
             if (flags[i].visual and current_layer == layer[i]) {
                 if (flags[i].class == .Player) {
                     const player_sprite = sm.get(player_sprite_handle);
-                    drawSprite(player_sprite, position[i], 0, tint[i], tm);
+                    {
+                        const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
+                        drawSprite(player_sprite, position[i], 0, final_tint, tm);
+                    }
                     const blaster_sprite = sm.get(blaster_sprite_handle);
 
                     const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
@@ -880,8 +948,10 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
                         //     "player.blaster_angle = {d:.4}.",
                         //     .{angle},
                         // ));
-
-                        drawSprite(blaster_sprite, blaster_position, angle, c.DARKGREEN, tm);
+                        {
+                            const final_tint = c.ColorLerp(c.DARKGREEN, c.WHITE, damage_animation[i]);
+                            drawSprite(blaster_sprite, blaster_position, angle, final_tint, tm);
+                        }
                     }
                 } else if (flags[i].class == .Battery) {
                     const battery_sprite = sm.get(battery_sprite_handle);
@@ -955,12 +1025,12 @@ pub fn main() !void {
     blaster_sprite_handle = sprite_manager.find("blaster").?;
     monster_sprite_handle = sprite_manager.find("enemy0").?;
 
-    const player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
+    var player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
 
     var prng = std.Random.DefaultPrng.init(0x6969);
     var rng = prng.random();
 
-    var entities_to_spawn: i32 = 400;
+    var entities_to_spawn: i32 = 100;
     while (entities_to_spawn >= 0) : (entities_to_spawn -= 1) {
         const Distribution = 500;
         if (rng.boolean() and rng.boolean()) {
@@ -990,7 +1060,7 @@ pub fn main() !void {
         .zoom = 3,
     };
 
-    var frame_messages = try std.ArrayList([]const u8).initCapacity(gpa.allocator(), 128);
+    var frame_messages = try std.ArrayList([]const u8).initCapacity(gpa.allocator(), 1024);
     defer frame_messages.deinit();
     const frame_memory = try gpa.allocator().alloc(u8, 1 * 1024 * 1024);
     defer gpa.allocator().free(frame_memory);
@@ -998,6 +1068,8 @@ pub fn main() !void {
     var frame_fba = std.heap.FixedBufferAllocator.init(frame_memory);
     var frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());
     const frame_allocator = frame_arena.allocator();
+
+    var game_manager = GameManager{};
 
     while (!c.WindowShouldClose()) {
         frame_messages.clearRetainingCapacity();
@@ -1037,7 +1109,10 @@ pub fn main() !void {
 
         c.ClearBackground(c.BLACK);
 
+        game_manager.update(input);
+
         try update(
+            &game_manager,
             &entity_manager,
             input,
             config,
@@ -1057,11 +1132,37 @@ pub fn main() !void {
 
         c.EndMode2D();
 
+        if (game_manager.state == .RespawnScreen) {
+            //TODO: Animate this screen
+            const font_size = 40;
+            {
+                const text: [*c]const u8 = "Dudes overwhelmed you!";
+
+                const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
+                c.DrawText(text, @intFromFloat((screen_width - width) / 2), @intFromFloat(screen_height / 2), font_size, c.RAYWHITE);
+            }
+            {
+                const text = try std.fmt.allocPrintZ(
+                    frame_allocator,
+                    "Respawn in = {d:.0}...",
+                    .{game_manager.respawn_time},
+                );
+                const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
+                c.DrawText(text.ptr, @intFromFloat((screen_width - width) / 2), @intFromFloat(screen_height / 2 + font_size + 8), font_size, c.RAYWHITE);
+            }
+        }
+
         c.DrawFPS(2, 2);
 
         for (frame_messages.items, 0..) |frame_message, i| {
             const index: c_int = @intCast(i);
             c.DrawText(frame_message.ptr, 2, 20 * (index + 1), 18, c.RAYWHITE);
+        }
+
+        if (game_manager.state == .ReadyToRespawn) {
+            log.debug("Spawning new player", .{});
+            player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
+            game_manager.state = .Playing;
         }
     }
 }
