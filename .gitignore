@@ -1,5 +1,6 @@
 zig-out/
 .zig-cache/
+*.rdi
 
 *.png
 
@@ -7,3 +8,5 @@ zig-out/
 *.pdb
 
 *.py
+
+.vscode/

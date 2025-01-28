@@ -6,7 +6,7 @@
     "player_damping": 0.8,
     "player_max_velocity": 100,
     "player_mass": 150,
-    "player_shoot_cooldown": 0.32,
+    "player_shoot_cooldown": 0.2,
     "player_blaster_distance": 9,
     "player_shoot_start_distance": 17,
     "player_shoot_hands_height": 8,
@@ -14,5 +14,7 @@
     "player_projectile_damping": 1,
     "player_projectile_max_velocity": 500,
     "player_projectile_ttl": 0.5,
-    "enemy_aggression_distance": 64
+    "enemy_aggression_distance": 1000,
+    "damage_inertia_factor": 0.3,
+    "enemy_pursuit_dispersal": 120
 }

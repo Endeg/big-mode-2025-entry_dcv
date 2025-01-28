@@ -264,12 +264,14 @@ const GigaEntity = struct {
     position: c.Vector2 = .{},
     acceleration: c.Vector2 = .{},
     velocity: c.Vector2 = .{},
+    health: i8 = 100,
 
     shoot_info: ShootInfo = .{},
     ttl: f32 = 0,
     enemy_behavior: EnemyBehavior = .{},
 
     tint: c.Color = undefined,
+    damage_animation: f32 = 0,
     layer: Layer = .Sprites,
 
     const Class = enum(u2) {
@@ -283,8 +285,9 @@ const GigaEntity = struct {
         class: Class,
         moving: bool = false,
         visual: bool = false,
+        collideable: bool = false,
         alive: bool = true,
-        pad: u3 = 0,
+        pad: u2 = 0,
     };
 
     const EnemyBehavior = struct {
@@ -315,7 +318,12 @@ const GigaEntity = struct {
 
     pub fn player(position: c.Vector2) Self {
         return .{
-            .flags = .{ .class = .Player, .moving = true, .visual = true },
+            .flags = .{
+                .class = .Player,
+                .moving = true,
+                .visual = true,
+                .collideable = true,
+            },
             .position = position,
             .tint = c.GREEN,
             .layer = .MoreSprites,
@@ -324,7 +332,12 @@ const GigaEntity = struct {
 
     pub fn battery(position: c.Vector2) Self {
         return .{
-            .flags = .{ .class = .Battery, .moving = true, .visual = true },
+            .flags = .{
+                .class = .Battery,
+                .moving = true,
+                .visual = true,
+                .collideable = true,
+            },
             .position = position,
             .tint = c.VIOLET,
         };
@@ -332,7 +345,12 @@ const GigaEntity = struct {
 
     pub fn projectile(position: c.Vector2, acceleration: c.Vector2, ttl: f32) Self {
         return .{
-            .flags = .{ .class = .Projectile, .moving = true, .visual = true },
+            .flags = .{
+                .class = .Projectile,
+                .moving = true,
+                .visual = true,
+                .collideable = true,
+            },
             .position = position,
             .acceleration = acceleration,
             .velocity = acceleration,
@@ -344,7 +362,12 @@ const GigaEntity = struct {
 
     pub fn supostat(position: c.Vector2) Self {
         return .{
-            .flags = .{ .class = .Supostat, .moving = true, .visual = true },
+            .flags = .{
+                .class = .Supostat,
+                .moving = true,
+                .visual = true,
+                .collideable = true,
+            },
             .position = position,
             .tint = c.MAROON,
             .layer = .MoreSprites,
@@ -515,6 +538,7 @@ const Config = struct {
     player_acc_magnitude: f32 = 200,
     general_radius: f32 = 8,
     general_center_from_bottom: f32 = 8,
+    general_damage: i8 = 30,
     player_damping: f32 = 0.8,
     player_max_velocity: f32 = 100,
     player_mass: f32 = 150,
@@ -526,11 +550,14 @@ const Config = struct {
     player_projectile_damping: f32 = 1,
     player_projectile_max_velocity: f32 = 800,
     player_projectile_ttl: f32 = 0.8,
+    projectile_radius: f32 = 2,
     enemy_loiter_time: f32 = 3,
     enemy_aggression_distance: f32 = 200,
     enemy_damping: f32 = 0.9,
     enemy_max_velocity: f32 = 90,
     enemy_mass: f32 = 300,
+    enemy_pursuit_dispersal: f32 = 50,
+    damage_inertia_factor: f32 = 0.5,
 
     const Self = @This();
 
@@ -584,6 +611,7 @@ fn update(
         const shoot_info = em.entities.items(.shoot_info);
         const ttl = em.entities.items(.ttl);
         const enemy_behavior = em.entities.items(.enemy_behavior);
+        const damage_animation = em.entities.items(.damage_animation);
 
         //TODO: Proper units: e.g. 16px - 1 meter or something.
 
@@ -627,14 +655,20 @@ fn update(
                 },
                 .Pursuit => {
                     enemy_behavior[i].commit_to_direction = .{};
-                    if (player_position.y > position[i].y) {
+
+                    const actual_target_position = c.Vector2{
+                        .x = player_position.x + (rng.floatNorm(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.4,
+                        .y = player_position.y + (rng.floatNorm(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.4,
+                    };
+
+                    if (actual_target_position.y > position[i].y) {
                         enemy_behavior[i].commit_to_direction.y = 1;
-                    } else if (player_position.y < position[i].y) {
+                    } else if (actual_target_position.y < position[i].y) {
                         enemy_behavior[i].commit_to_direction.y = -1;
                     }
-                    if (player_position.x > position[i].x) {
+                    if (actual_target_position.x > position[i].x) {
                         enemy_behavior[i].commit_to_direction.x = 1;
-                    } else if (player_position.x < position[i].x) {
+                    } else if (actual_target_position.x < position[i].x) {
                         enemy_behavior[i].commit_to_direction.x = -1;
                     }
                 },
@@ -734,6 +768,41 @@ fn update(
                 .{shoot_info[i].cooldown},
             ));
         }
+
+        if (damage_animation[i] > 0) {
+            damage_animation[i] = @min(damage_animation[i] - input.dt, 0);
+        }
+    }
+
+    i = 0;
+    while (i < em.entities.len) : (i += 1) {
+        const flags = em.entities.items(.flags);
+        const position = em.entities.items(.position);
+        const velocity = em.entities.items(.velocity);
+        const health = em.entities.items(.health);
+        const damage_animation = em.entities.items(.damage_animation);
+        var j: usize = 0;
+        while (j < em.entities.len) : (j += 1) {
+            if (i != j and flags[i].alive and flags[i].collideable) {
+                if (flags[i].class == .Projectile and flags[j].class == .Supostat) {
+                    const real_position = c.Vector2Add(position[j], .{ .y = -config.general_center_from_bottom });
+                    if (c.Vector2Distance(position[i], real_position) <= config.general_radius + config.projectile_radius) {
+                        health[j] -= config.general_damage;
+                        flags[i].alive = false;
+                        damage_animation[j] = 1;
+                        velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor));
+
+                        //TODO: Some particles
+
+                        if (health[j] <= 0) {
+                            flags[j].alive = false;
+
+                            //TODO: Death animation/sound
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -745,6 +814,7 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
             const flags = em.entities.items(.flags);
             const position = em.entities.items(.position);
             const tint = em.entities.items(.tint);
+            const damage_animation = em.entities.items(.damage_animation);
             const layer = em.entities.items(.layer);
             if (flags[i].visual and current_layer == layer[i]) {
                 if (flags[i].class == .Player) {
@@ -820,8 +890,9 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
                     const projectile_sprite = sm.get(projectile_sprite_handle);
                     drawSprite(projectile_sprite, position[i], 0, tint[i], tm);
                 } else if (flags[i].class == .Supostat) {
+                    const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
                     const monster_sprite = sm.get(monster_sprite_handle);
-                    drawSprite(monster_sprite, position[i], 0, tint[i], tm);
+                    drawSprite(monster_sprite, position[i], 0, final_tint, tm);
                 }
             }
         }
@@ -891,7 +962,7 @@ pub fn main() !void {
 
     var entities_to_spawn: i32 = 400;
     while (entities_to_spawn >= 0) : (entities_to_spawn -= 1) {
-        const Distribution = 400;
+        const Distribution = 500;
         if (rng.boolean() and rng.boolean()) {
             _ = entity_manager.createEntity(GigaEntity.battery(
                 .{
