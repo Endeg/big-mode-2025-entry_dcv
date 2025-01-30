@@ -11,7 +11,7 @@ pub const GigaEntity = struct {
     position: c.Vector2 = .{},
     acceleration: c.Vector2 = .{},
     velocity: c.Vector2 = .{},
-    health: i8 = 100,
+    health: i8 = 5,
     iframes: f32 = 0,
 
     shoot_info: ShootInfo = .{},

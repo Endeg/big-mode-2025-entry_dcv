@@ -377,7 +377,7 @@ fn update(
                     const real_position_b = c.Vector2Add(c.Vector2Add(position[j], .{ .y = -above_ground_value[j] }), .{ .y = -config.general_center_from_bottom });
                     if (c.Vector2Distance(position[i], real_position_b) <= config.general_radius + config.projectile_radius) {
                         audio_manager.playOneOf(rng, &.{ .Damage0, .Damage1, .Damage2, .Damage3, .Damage4 });
-                        health[j] -= config.general_damage;
+                        health[j] -= 1;
                         flags[i].alive = false;
                         damage_animation[j] = 1;
                         velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor));
@@ -399,7 +399,7 @@ fn update(
                         velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor * 0.2));
                         if (iframes[j] <= 0) {
                             audio_manager.playOneOf(rng, &.{ .DamageFromSupostat0, .DamageFromSupostat1, .DamageFromSupostat2, .DamageFromSupostat3 });
-                            health[j] -= config.general_damage;
+                            health[j] -= 1;
                             damage_animation[j] = 1;
                             iframes[j] = config.iframes;
 
@@ -739,14 +739,27 @@ pub fn main() !void {
 
         c.EndMode2D();
 
+        const gui_camera = c.Camera2D{
+            .target = .{},
+            .zoom = 3,
+        };
+
+        c.BeginMode2D(gui_camera);
+
         if (game_manager.state == .RespawnScreen) {
+            const zoomed_screen_width = screen_width / 3;
+            const zoomed_screen_height = screen_height / 3;
+            const font_size = 20;
+            const padding = 8;
+            const vertical_offset = font_size + padding;
+
             //TODO: Animate this screen
-            const font_size = 40;
+
             {
                 const text: [*c]const u8 = "Dudes overwhelmed you!";
 
                 const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
-                c.DrawText(text, @intFromFloat((screen_width - width) / 2), @intFromFloat(screen_height / 2), font_size, c.RAYWHITE);
+                c.DrawText(text, @intFromFloat((zoomed_screen_width - width) / 2), @intFromFloat(zoomed_screen_height / 2 - vertical_offset), font_size, c.RAYWHITE);
             }
             {
                 const text = try std.fmt.allocPrintZ(
@@ -755,9 +768,21 @@ pub fn main() !void {
                     .{game_manager.respawn_time},
                 );
                 const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
-                c.DrawText(text.ptr, @intFromFloat((screen_width - width) / 2), @intFromFloat(screen_height / 2 + font_size + 8), font_size, c.RAYWHITE);
+                c.DrawText(text.ptr, @intFromFloat((zoomed_screen_width - width) / 2), @intFromFloat(zoomed_screen_height / 2 + font_size + padding - vertical_offset), font_size, c.RAYWHITE);
+            }
+        } else if (game_manager.state == .Playing) {
+            if (entity_manager.entityField(player_handle, .health)) |player_health| {
+                var i: i8 = 0;
+                var pos = c.Vector2{ .x = 2, .y = 2 };
+                while (i < player_health.*) : (i += 1) {
+                    const sprite = sprite_manager.get(.Heart);
+                    drawSprite(sprite_manager.get(.Heart), pos, 0, c.RED);
+                    pos.x += sprite.size.x;
+                }
             }
         }
+
+        c.EndMode2D();
 
         c.DrawFPS(2, 2);
 
