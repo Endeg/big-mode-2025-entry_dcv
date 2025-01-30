@@ -3,10 +3,6 @@
         "image": "tile-28x9.png",
         "origin": {"x": 0.5, "y": 1}
     },
-    "battery": {
-        "image": "tile-12x8.png",
-        "origin": {"x": 0.5, "y": 1}
-    },
     "projectile": {
         "image": "tile-27x20.png",
         "origin": {"x": 0.5, "y": 0.5}
@@ -26,5 +22,27 @@
     "potion": {
         "image": "tile-34x13.png",
         "origin": {"x": 0.5, "y": 1}
+    },
+    "battery": {
+        "image": "battery-item.png",
+        "origin": {"x": 0.5, "y": 0.9}
+    },
+    "power-indicator-full": {
+        "image": "power-indicator.png",
+        "source": {"x": 0, "y": 0, "width": 14, "height": 8},
+        "origin": {"x": 0, "y": 0}
+    },
+    "power-indicator-empty": {
+        "image": "power-indicator.png",
+        "source": {"x": 0, "y": 8, "width": 14, "height": 8},
+        "origin": {"x": 0, "y": 0}
+    },
+    "decor-0": {
+        "image": "tile-0x1.png",
+        "origin": {"x": 0.5, "y": 0.5}
+    },
+    "decor-1": {
+        "image": "tile-0x2.png",
+        "origin": {"x": 0.5, "y": 0.5}
     }
 }

@@ -18,6 +18,7 @@ const GlobalConfig = @import("GlobalConfig.zig");
 //            TODO: Make pickable batteries and charge meter that changes how awesome you can shoot.
 //         4. When charge is low - shoot less, high - shoot more, maybe even with spread shoot.
 //         5. Try to have fun.
+// TODO: GUI - health, batteries, also change damage system to number of hits.
 // TODO: Spawn enemies around you not in random places. Keep count to decide if more needs to be spawn.
 // TODO: Juice:
 //        +1. Hop animation while walking.
@@ -34,6 +35,7 @@ const GigaEntity = @import("entity.zig").GigaEntity;
 const Json = struct {
     const Sprite = struct {
         image: []const u8,
+        source: ?c.Rectangle = null,
         size: ?c.Vector2 = null,
         origin: c.Vector2,
     };
@@ -200,12 +202,16 @@ const SpriteManager = struct {
                     sprite.texture = try self.texture_manager.fetchHandle(parsed_sprite.value.image);
                     const texture = self.texture_manager.get(sprite.texture);
                     log.debug("texture = {any}.", .{texture});
-                    sprite.source = .{
-                        .x = 0,
-                        .y = 0,
-                        .width = @floatFromInt(texture.width),
-                        .height = @floatFromInt(texture.height),
-                    };
+                    if (parsed_sprite.value.source) |provided_source| {
+                        sprite.source = provided_source;
+                    } else {
+                        sprite.source = .{
+                            .x = 0,
+                            .y = 0,
+                            .width = @floatFromInt(texture.width),
+                            .height = @floatFromInt(texture.height),
+                        };
+                    }
                     if (parsed_sprite.value.size) |provided_size| {
                         sprite.size = provided_size;
                     } else {
@@ -486,6 +492,12 @@ fn update(
             const hop_max_angle: f32 = std.math.degreesToRadians(180);
 
             if (flags[i].class == .Player or flags[i].class == .Supostat) {
+                position[i] = c.Vector2Clamp(
+                    position[i],
+                    .{ .x = -ArenaWidth / 2, .y = -ArenaHeight / 2 },
+                    .{ .x = ArenaWidth / 2, .y = ArenaHeight / 2 },
+                );
+
                 const frame_distance = c.Vector2Distance(initial_position, position[i]);
 
                 const hop_distance: f32 = if (flags[i].class == .Player) config.player_hop_distance else config.enemy_hop_distance;
@@ -617,7 +629,40 @@ fn update(
     }
 }
 
+const ArenaWidth = 256 * 16;
+const ArenaHeight = 256 * 16;
+
 fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: Input, config: GlobalConfig) void {
+    c.DrawRectangle(-ArenaWidth / 2, -ArenaHeight / 2, 1, ArenaHeight, c.GRAY);
+    c.DrawRectangle(ArenaWidth / 2, -ArenaHeight / 2, 1, ArenaHeight, c.GRAY);
+
+    c.DrawRectangle(-ArenaWidth / 2, -ArenaHeight / 2, ArenaWidth, 1, c.GRAY);
+    c.DrawRectangle(-ArenaWidth / 2, ArenaHeight / 2, ArenaWidth + 1, 1, c.GRAY);
+
+    {
+        var prng = std.Random.DefaultPrng.init(0x69);
+        var rng = prng.random();
+
+        var x: f32 = -ArenaWidth / 2;
+        while (x < ArenaWidth / 2) : (x += 16) {
+            var y: f32 = -ArenaWidth / 2;
+            while (y < ArenaWidth / 2) : (y += 16) {
+                if (rng.int(u16) < 2000) {
+                    const decor_index = rng.uintLessThan(usize, sprites.decor.len);
+                    drawSprite(
+                        sm.get(sprites.decor[decor_index]),
+                        .{ .x = x + rng.floatExp(f32) * 8 - 4, .y = y + rng.floatExp(f32) * 8 - 4 },
+                        0,
+                        c.GREEN,
+                        tm,
+                    );
+                }
+            }
+        }
+
+        //TODO: Draw trees/bushes and stuff
+    }
+
     inline for (@typeInfo(GigaEntity.Layer).@"enum".fields) |layer_field| {
         const current_layer: GigaEntity.Layer = @enumFromInt(layer_field.value);
         var i: usize = 0;
@@ -631,12 +676,12 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
             if (flags[i].visual and current_layer == layer[i]) {
                 if (flags[i].class == .Player) {
                     const final_position = c.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
-                    const player_sprite = sm.get(player_sprite_handle);
+                    const player_sprite = sm.get(sprites.player);
                     {
                         const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
                         drawSprite(player_sprite, final_position, 0, final_tint, tm);
                     }
-                    const blaster_sprite = sm.get(blaster_sprite_handle);
+                    const blaster_sprite = sm.get(sprites.blaster);
 
                     const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
                     if (is_shooting) {
@@ -702,15 +747,15 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
                         }
                     }
                 } else if (flags[i].class == .Battery) {
-                    const battery_sprite = sm.get(battery_sprite_handle);
+                    const battery_sprite = sm.get(sprites.battery);
                     drawSprite(battery_sprite, position[i], 0, tint[i], tm);
                 } else if (flags[i].class == .Projectile) {
-                    const projectile_sprite = sm.get(projectile_sprite_handle);
+                    const projectile_sprite = sm.get(sprites.projectile);
                     drawSprite(projectile_sprite, position[i], 0, tint[i], tm);
                 } else if (flags[i].class == .Supostat) {
                     const final_position = c.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
                     const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
-                    const monster_sprite = sm.get(monster_sprite_handle);
+                    const monster_sprite = sm.get(sprites.monster);
                     drawSprite(monster_sprite, final_position, 0, final_tint, tm);
                 }
             }
@@ -731,11 +776,21 @@ fn cleanupEntities(em: *EntityManager) void {
     }
 }
 
-var player_sprite_handle: SpriteManager.Handle = undefined;
-var battery_sprite_handle: SpriteManager.Handle = undefined;
-var projectile_sprite_handle: SpriteManager.Handle = undefined;
-var blaster_sprite_handle: SpriteManager.Handle = undefined;
-var monster_sprite_handle: SpriteManager.Handle = undefined;
+const SpriteHandles = struct {
+    player: SpriteManager.Handle,
+    battery: SpriteManager.Handle,
+    projectile: SpriteManager.Handle,
+    blaster: SpriteManager.Handle,
+    monster: SpriteManager.Handle,
+    heart: SpriteManager.Handle,
+    potion: SpriteManager.Handle,
+    power_indicator_empty: SpriteManager.Handle,
+    decor: [2]SpriteManager.Handle,
+};
+
+var sprites: SpriteHandles = undefined;
+
+const DebugMode = false;
 
 pub fn main() !void {
     var gpa = GPA{};
@@ -774,33 +829,43 @@ pub fn main() !void {
     var entity_manager = try EntityManager.init(gpa.allocator());
     defer entity_manager.deinit();
 
-    player_sprite_handle = sprite_manager.find("main-guy").?;
-    battery_sprite_handle = sprite_manager.find("battery").?;
-    projectile_sprite_handle = sprite_manager.find("projectile").?;
-    blaster_sprite_handle = sprite_manager.find("blaster").?;
-    monster_sprite_handle = sprite_manager.find("enemy0").?;
+    sprites = .{
+        .player = sprite_manager.find("main-guy").?,
+        .battery = sprite_manager.find("battery").?,
+        .projectile = sprite_manager.find("projectile").?,
+        .blaster = sprite_manager.find("blaster").?,
+        .monster = sprite_manager.find("enemy0").?,
+        .heart = sprite_manager.find("heart").?,
+        .potion = sprite_manager.find("potion").?,
+        .power_indicator_empty = sprite_manager.find("power-indicator-empty").?,
+        .decor = .{
+            sprite_manager.find("decor-0").?,
+            sprite_manager.find("decor-1").?,
+        },
+    };
 
     var player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
     audio_manager.play(.Respawn);
 
     var prng = std.Random.DefaultPrng.init(0x6969);
     var rng = prng.random();
-
-    var entities_to_spawn: i32 = 2000;
-    while (entities_to_spawn >= 0) : (entities_to_spawn -= 1) {
-        const Distribution = 500;
-        if (rng.boolean() and rng.boolean()) {
-            _ = entity_manager.createEntity(GigaEntity.battery(
-                .{
+    if (true) {
+        var entities_to_spawn: i32 = 100;
+        while (entities_to_spawn >= 0) : (entities_to_spawn -= 1) {
+            const Distribution = 200;
+            if (rng.boolean() and rng.boolean()) {
+                _ = entity_manager.createEntity(GigaEntity.battery(
+                    .{
+                        .x = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                        .y = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                    },
+                ));
+            } else {
+                _ = entity_manager.createEntity(GigaEntity.supostat(.{
                     .x = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
                     .y = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
-                },
-            ));
-        } else {
-            _ = entity_manager.createEntity(GigaEntity.supostat(.{
-                .x = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
-                .y = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
-            }, rng));
+                }, rng));
+            }
         }
     }
 
@@ -945,9 +1010,11 @@ pub fn main() !void {
 
         c.DrawFPS(2, 2);
 
-        for (frame_messages.items, 0..) |frame_message, i| {
-            const index: c_int = @intCast(i);
-            c.DrawText(frame_message.ptr, 2, 20 * (index + 1), 18, c.RAYWHITE);
+        if (DebugMode) {
+            for (frame_messages.items, 0..) |frame_message, i| {
+                const index: c_int = @intCast(i);
+                c.DrawText(frame_message.ptr, 2, 20 * (index + 1), 18, c.RAYWHITE);
+            }
         }
 
         if (game_manager.state == .ReadyToRespawn) {

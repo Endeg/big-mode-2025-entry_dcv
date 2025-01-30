@@ -59,7 +59,7 @@ pub const GigaEntity = struct {
     };
 
     pub const Layer = enum(u2) {
-        Background,
+        //Background,
         Sprites,
         MoreSprites,
         Foreground,

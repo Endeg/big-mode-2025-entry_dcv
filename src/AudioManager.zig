@@ -36,7 +36,7 @@ pub fn playOneOf(
     rng: std.Random,
     comptime audio_assets: []const AudioAsset,
 ) void {
-    const sound_index = rng.intRangeLessThan(usize, 0, audio_assets.len);
+    const sound_index = rng.uintLessThan(usize, audio_assets.len);
     self.play(audio_assets[sound_index]);
 }
 
