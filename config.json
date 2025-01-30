@@ -15,7 +15,7 @@
     "player_projectile_damping": 1,
     "player_projectile_max_velocity": 500,
     "player_projectile_ttl": 0.5,
-    "enemy_aggression_distance": 800000,
+    "enemy_aggression_distance": 800,
     "enemy_aggression_distance_backup": 800,
     "damage_inertia_factor": 0.3,
     "enemy_pursuit_dispersal": 250,
@@ -24,5 +24,6 @@
     "enemy_max_velocity": 120,
     "enemy_max_velocity_backup": 120,
     "enemy_hop_distance": 25,
-    "enemy_hop_amp": 7
+    "enemy_hop_amp": 7,
+    "decor_magic": 8000
 }

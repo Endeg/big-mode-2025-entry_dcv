@@ -69,7 +69,7 @@ const GameManager = struct {
     };
 
     pub fn startRespawnCounter(self: *Self) void {
-        self.respawn_time = 300;
+        self.respawn_time = 3;
         self.state = .RespawnScreen;
     }
 
@@ -441,14 +441,20 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
         while (x < ArenaWidth / 2) : (x += 16) {
             var y: f32 = -ArenaWidth / 2;
             while (y < ArenaWidth / 2) : (y += 16) {
-                if (rng.int(u16) < 2000) {
+                if (rng.int(u16) < config.decor_magic) {
                     const DecorSprites = [_]SpriteHandle{ .Decor0, .Decor1 };
                     const decor_index = rng.uintLessThan(usize, DecorSprites.len);
+
+                    var hsv = c.ColorToHSV(c.GREEN);
+                    hsv.y = rng.float(f32) * 0.5 + 0.25;
+                    hsv.z = rng.float(f32) * 0.5 + 0.25;
+                    const final_color = c.ColorFromHSV(hsv.x, hsv.y, hsv.z);
+
                     drawSprite(
                         sm.get(DecorSprites[decor_index]),
                         .{ .x = x + rng.floatExp(f32) * 8 - 4, .y = y + rng.floatExp(f32) * 8 - 4 },
                         0,
-                        c.GREEN,
+                        final_color,
                     );
                 }
             }

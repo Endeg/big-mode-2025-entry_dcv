@@ -36,6 +36,7 @@ enemy_hop_amp: f32 = 4,
 damage_inertia_factor: f32 = 0.5,
 iframes: f32 = 2,
 damage_animation_speed: f32 = 10,
+decor_magic: u16 = 2000,
 
 pub fn load(directory: []const u8, file_name: []const u8, allocator: std.mem.Allocator) ?GlobalConfig {
     const config_json_content = util.readEntireFileAlloc(directory, file_name, allocator) catch |err| {
