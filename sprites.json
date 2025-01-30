@@ -18,5 +18,13 @@
     "enemy0": {
         "image": "tile-28x6.png",
         "origin": {"x": 0.5, "y": 1}
+    },
+    "heart": {
+        "image": "tile-39x10.png",
+        "origin": {"x": 0.5, "y": 0.5}
+    },
+    "potion": {
+        "image": "tile-34x13.png",
+        "origin": {"x": 0.5, "y": 1}
     }
 }

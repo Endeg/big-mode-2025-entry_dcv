@@ -22,6 +22,9 @@ pub const GigaEntity = struct {
     damage_animation: f32 = 0,
     layer: Layer = .Sprites,
 
+    hop_value: f32 = 0,
+    above_ground_value: f32 = 0,
+
     const Class = enum(u2) {
         Player,
         Battery,
@@ -108,7 +111,16 @@ pub const GigaEntity = struct {
         };
     }
 
-    pub fn supostat(position: c.Vector2) Self {
+    pub fn supostat(position: c.Vector2, rng: std.Random) Self {
+        const GreenHueStart: f32 = 90 + 30;
+        const GreenHueEnd: f32 = 150 - 30;
+        const AllHue: f32 = 360;
+
+        var hsv = c.ColorToHSV(c.MAROON);
+        hsv.x = if (rng.boolean()) rng.float(f32) * GreenHueStart else GreenHueEnd + (rng.float(f32) * (AllHue - GreenHueEnd));
+
+        const shifted_tint = c.ColorFromHSV(hsv.x, hsv.y, hsv.z);
+
         return .{
             .flags = .{
                 .class = .Supostat,
@@ -117,7 +129,7 @@ pub const GigaEntity = struct {
                 .collideable = true,
             },
             .position = position,
-            .tint = c.MAROON,
+            .tint = shifted_tint,
             .layer = .MoreSprites,
         };
     }
@@ -229,3 +241,35 @@ pub const EntityManager = struct {
         }
     }
 };
+
+test "entity manager stuff" {
+    const allocator = std.testing.allocator;
+
+    var em = try EntityManager.init(allocator);
+    defer em.deinit();
+
+    const DatasetSize = 1000;
+
+    var entity_handles = try std.ArrayList(EntityManager.Handle).initCapacity(allocator, DatasetSize);
+    defer entity_handles.deinit();
+
+    var prng = std.Random.DefaultPrng.init(0x69);
+    var rng = prng.random();
+    var entities_count: usize = DatasetSize;
+    while (entities_count > 0) : (entities_count -= 1) {
+        const handle = em.createEntity(GigaEntity.player(
+            .{ .x = rng.float(f32), .y = rng.float(f32) },
+            @enumFromInt(rng.int(u16)),
+        ));
+        entity_handles.appendAssumeCapacity(handle);
+    }
+
+    rng.shuffle(EntityManager.Handle, entity_handles.items);
+
+    for (entity_handles.items) |entity_handle| {
+        em.removeEntity(entity_handle);
+    }
+
+    try std.testing.expectEqual(0, em.entity_index.count());
+    try std.testing.expectEqual(0, em.entities.len);
+}
