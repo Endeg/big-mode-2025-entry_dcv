@@ -38,6 +38,8 @@ pub fn playOneOf(
     self.play(audio_assets[sound_index]);
 }
 
+//---------------------------------------------
+
 const AudioAssetsDir = "assets-to-embed/";
 
 const AudioAsset = enum {

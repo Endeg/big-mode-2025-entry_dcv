@@ -32,216 +32,9 @@ const GlobalConfig = @import("GlobalConfig.zig");
 const EntityManager = @import("entity.zig").EntityManager;
 const GigaEntity = @import("entity.zig").GigaEntity;
 
-const Json = struct {
-    const Sprite = struct {
-        image: []const u8,
-        source: ?c.Rectangle = null,
-        size: ?c.Vector2 = null,
-        origin: c.Vector2,
-    };
-};
-
-const Sprite = struct {
-    texture: TextureManager.Handle,
-    source: c.Rectangle,
-    size: c.Vector2,
-    origin: c.Vector2,
-};
-
-const TextureManager = struct {
-    const ElementsCount = 16;
-
-    textures: std.ArrayListUnmanaged(c.Texture2D),
-    texture_file_names: std.StringHashMapUnmanaged(Handle),
-    allocator: std.mem.Allocator,
-
-    const Self = @This();
-
-    const Handle = enum(u8) { _ };
-
-    pub fn init(allocator: std.mem.Allocator) !TextureManager {
-        var texture_file_names = std.StringHashMapUnmanaged(Handle){};
-        try texture_file_names.ensureTotalCapacity(allocator, ElementsCount);
-
-        return .{
-            .textures = try std.ArrayListUnmanaged(c.Texture2D).initCapacity(allocator, ElementsCount),
-            .texture_file_names = texture_file_names,
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        var name_iter = self.texture_file_names.keyIterator();
-        while (name_iter.next()) |name| {
-            self.allocator.free(name.*);
-        }
-
-        self.texture_file_names.deinit(self.allocator);
-        self.textures.deinit(self.allocator);
-    }
-
-    pub fn fetchHandle(self: *Self, file_name: []const u8) !Handle {
-        if (self.texture_file_names.get(file_name)) |found_handle| {
-            errdefer comptime unreachable;
-            return found_handle;
-        }
-
-        var i = file_name.len - 1;
-        var ext: ?[]const u8 = null;
-        while (i > 0) : (i -= 1) {
-            if (file_name[i] == '.') {
-                ext = file_name[i..];
-                break;
-            }
-        }
-
-        const ext_z = std.mem.zeroes([6]u8);
-
-        log.debug("ext = {?s}", .{ext});
-        assert(ext != null);
-
-        if (ext) |actual_ext| {
-            std.mem.copyForwards(u8, @constCast(ext_z[0..]), actual_ext);
-        }
-
-        const file_data = try util.readEntireFileAlloc("assets", file_name, self.allocator);
-        defer self.allocator.free(file_data);
-
-        const image = c.LoadImageFromMemory(&ext_z, file_data.ptr, @intCast(file_data.len));
-        defer c.UnloadImage(image);
-        log.debug("image = {any}.", .{image});
-
-        const texture = c.LoadTextureFromImage(image);
-        log.debug("texture = {any}.", .{texture});
-
-        const result_handle: Handle = @enumFromInt(self.textures.items.len);
-
-        self.textures.appendAssumeCapacity(texture);
-
-        const file_name_dup = try self.allocator.dupe(u8, file_name);
-        self.texture_file_names.putAssumeCapacity(file_name_dup, result_handle);
-
-        return result_handle;
-    }
-
-    pub fn get(self: *const Self, handle: Handle) *c.Texture2D {
-        const index: usize = @intFromEnum(handle);
-        assert(index < self.textures.items.len);
-        return &self.textures.items[index];
-    }
-};
-
-const SpriteManager = struct {
-    const Error = error{
-        malformed_sprites_json,
-    };
-
-    texture_manager: *TextureManager,
-    sprites: std.ArrayListUnmanaged(Sprite),
-    sprite_names: std.StringHashMapUnmanaged(Handle),
-    allocator: std.mem.Allocator,
-
-    const Self = @This();
-
-    const ElementsCount = 16;
-
-    const Handle = enum(u8) { _ };
-
-    pub fn init(
-        texture_manager: *TextureManager,
-        allocator: std.mem.Allocator,
-    ) !Self {
-        var sprite_names = std.StringHashMapUnmanaged(Handle){};
-        try sprite_names.ensureTotalCapacity(allocator, ElementsCount);
-
-        return .{
-            .texture_manager = texture_manager,
-            .sprite_names = sprite_names,
-            .sprites = try std.ArrayListUnmanaged(Sprite).initCapacity(allocator, ElementsCount),
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        var name_it = self.sprite_names.keyIterator();
-        while (name_it.next()) |name| {
-            self.allocator.free(name.*);
-        }
-        self.sprite_names.deinit(self.allocator);
-        self.sprites.deinit(self.allocator);
-    }
-
-    pub fn loadFromJson(self: *Self, json_data: []const u8) !void {
-        const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, json_data, .{});
-        defer parsed.deinit();
-        var created: usize = 0;
-        var updated: usize = 0;
-        switch (parsed.value) {
-            .object => |sprites_json_value| {
-                var iter = sprites_json_value.iterator();
-
-                while (iter.next()) |entry| {
-                    const sprite_name = entry.key_ptr.*;
-                    const sprite_json_value = entry.value_ptr.*;
-
-                    const parsed_sprite = try std.json.parseFromValue(Json.Sprite, self.allocator, sprite_json_value, .{});
-                    defer parsed_sprite.deinit();
-                    var sprite: *Sprite = undefined;
-                    if (self.sprite_names.get(sprite_name)) |existing_sprite_handle| {
-                        sprite = self.get(existing_sprite_handle);
-                        updated += 1;
-                    } else {
-                        const new_sprite_handle: Handle = @enumFromInt(self.sprites.items.len);
-                        self.sprites.appendAssumeCapacity(undefined);
-                        const sprite_name_dup = try self.allocator.dupe(u8, sprite_name);
-                        self.sprite_names.putAssumeCapacity(sprite_name_dup, new_sprite_handle);
-                        sprite = self.get(new_sprite_handle);
-                        created += 1;
-                    }
-
-                    sprite.texture = try self.texture_manager.fetchHandle(parsed_sprite.value.image);
-                    const texture = self.texture_manager.get(sprite.texture);
-                    log.debug("texture = {any}.", .{texture});
-                    if (parsed_sprite.value.source) |provided_source| {
-                        sprite.source = provided_source;
-                    } else {
-                        sprite.source = .{
-                            .x = 0,
-                            .y = 0,
-                            .width = @floatFromInt(texture.width),
-                            .height = @floatFromInt(texture.height),
-                        };
-                    }
-                    if (parsed_sprite.value.size) |provided_size| {
-                        sprite.size = provided_size;
-                    } else {
-                        sprite.size = .{
-                            .x = @floatFromInt(texture.width),
-                            .y = @floatFromInt(texture.height),
-                        };
-                    }
-                    sprite.origin = parsed_sprite.value.origin;
-                }
-                log.debug("[Sprite Manager] created {d} and updated {d} sprites.", .{ created, updated });
-            },
-            else => return Error.malformed_sprites_json,
-        }
-    }
-
-    pub fn get(self: *const Self, handle: Handle) *Sprite {
-        const index: usize = @intFromEnum(handle);
-        assert(index < self.sprites.items.len);
-        return &self.sprites.items[index];
-    }
-
-    pub fn find(self: *const Self, name: []const u8) ?Handle {
-        if (self.sprite_names.get(name)) |found_sprite_handle| {
-            return found_sprite_handle;
-        } else {
-            return null;
-        }
-    }
-};
+const SpriteManager = @import("SpriteManager.zig");
+const Sprite = SpriteManager.Sprite;
+const SpriteHandle = SpriteManager.SpriteHandle;
 
 const AudioManager = @import("AudioManager.zig");
 
@@ -252,12 +45,9 @@ fn drawSprite(
     position: c.Vector2,
     rotation: f32,
     tint: c.Color,
-    texture_manager: *const TextureManager,
 ) void {
-    const texture = texture_manager.get(sprite.texture).*;
-
     c.DrawTexturePro(
-        texture,
+        sprite.texture,
         sprite.source,
         .{ .x = position.x, .y = position.y, .width = sprite.size.x, .height = sprite.size.y },
         .{ .x = sprite.origin.x * sprite.size.x, .y = sprite.origin.y * sprite.size.y },
@@ -632,7 +422,7 @@ fn update(
 const ArenaWidth = 256 * 16;
 const ArenaHeight = 256 * 16;
 
-fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: Input, config: GlobalConfig) void {
+fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalConfig) void {
     c.DrawRectangle(-ArenaWidth / 2, -ArenaHeight / 2, 1, ArenaHeight, c.GRAY);
     c.DrawRectangle(ArenaWidth / 2, -ArenaHeight / 2, 1, ArenaHeight, c.GRAY);
 
@@ -648,13 +438,13 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
             var y: f32 = -ArenaWidth / 2;
             while (y < ArenaWidth / 2) : (y += 16) {
                 if (rng.int(u16) < 2000) {
-                    const decor_index = rng.uintLessThan(usize, sprites.decor.len);
+                    const DecorSprites = [_]SpriteHandle{ .Decor0, .Decor1 };
+                    const decor_index = rng.uintLessThan(usize, DecorSprites.len);
                     drawSprite(
-                        sm.get(sprites.decor[decor_index]),
+                        sm.get(DecorSprites[decor_index]),
                         .{ .x = x + rng.floatExp(f32) * 8 - 4, .y = y + rng.floatExp(f32) * 8 - 4 },
                         0,
                         c.GREEN,
-                        tm,
                     );
                 }
             }
@@ -676,12 +466,12 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
             if (flags[i].visual and current_layer == layer[i]) {
                 if (flags[i].class == .Player) {
                     const final_position = c.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
-                    const player_sprite = sm.get(sprites.player);
+                    const player_sprite = sm.get(.Player);
                     {
                         const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
-                        drawSprite(player_sprite, final_position, 0, final_tint, tm);
+                        drawSprite(player_sprite, final_position, 0, final_tint);
                     }
-                    const blaster_sprite = sm.get(sprites.blaster);
+                    const blaster_sprite = sm.get(.Blaster);
 
                     const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
                     if (is_shooting) {
@@ -743,20 +533,20 @@ fn render(em: *EntityManager, sm: *SpriteManager, tm: *TextureManager, input: In
                         // ));
                         {
                             const final_tint = c.ColorLerp(c.DARKGREEN, c.WHITE, damage_animation[i]);
-                            drawSprite(blaster_sprite, blaster_position, angle, final_tint, tm);
+                            drawSprite(blaster_sprite, blaster_position, angle, final_tint);
                         }
                     }
                 } else if (flags[i].class == .Battery) {
-                    const battery_sprite = sm.get(sprites.battery);
-                    drawSprite(battery_sprite, position[i], 0, tint[i], tm);
+                    const battery_sprite = sm.get(.Battery);
+                    drawSprite(battery_sprite, position[i], 0, tint[i]);
                 } else if (flags[i].class == .Projectile) {
-                    const projectile_sprite = sm.get(sprites.projectile);
-                    drawSprite(projectile_sprite, position[i], 0, tint[i], tm);
+                    const projectile_sprite = sm.get(.Projectile);
+                    drawSprite(projectile_sprite, position[i], 0, tint[i]);
                 } else if (flags[i].class == .Supostat) {
                     const final_position = c.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
                     const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
-                    const monster_sprite = sm.get(sprites.monster);
-                    drawSprite(monster_sprite, final_position, 0, final_tint, tm);
+                    const monster_sprite = sm.get(.Enemy0);
+                    drawSprite(monster_sprite, final_position, 0, final_tint);
                 }
             }
         }
@@ -775,20 +565,6 @@ fn cleanupEntities(em: *EntityManager) void {
         }
     }
 }
-
-const SpriteHandles = struct {
-    player: SpriteManager.Handle,
-    battery: SpriteManager.Handle,
-    projectile: SpriteManager.Handle,
-    blaster: SpriteManager.Handle,
-    monster: SpriteManager.Handle,
-    heart: SpriteManager.Handle,
-    potion: SpriteManager.Handle,
-    power_indicator_empty: SpriteManager.Handle,
-    decor: [2]SpriteManager.Handle,
-};
-
-var sprites: SpriteHandles = undefined;
 
 const DebugMode = false;
 
@@ -814,35 +590,10 @@ pub fn main() !void {
     var config_watcher = try util.FileWatcher.init(".", "config.json", 0.5);
 
     const audio_manager = AudioManager.init();
-
-    var texture_manager = try TextureManager.init(gpa.allocator());
-    defer texture_manager.deinit();
-    var sprite_manager = try SpriteManager.init(&texture_manager, gpa.allocator());
-    defer sprite_manager.deinit();
-    {
-        const allocator = gpa.allocator();
-        const sprites_json_content = try util.readEntireFileAlloc(".", "sprites.json", allocator);
-        defer allocator.free(sprites_json_content);
-        try sprite_manager.loadFromJson(sprites_json_content);
-    }
+    var sprite_manager = SpriteManager.init();
 
     var entity_manager = try EntityManager.init(gpa.allocator());
     defer entity_manager.deinit();
-
-    sprites = .{
-        .player = sprite_manager.find("main-guy").?,
-        .battery = sprite_manager.find("battery").?,
-        .projectile = sprite_manager.find("projectile").?,
-        .blaster = sprite_manager.find("blaster").?,
-        .monster = sprite_manager.find("enemy0").?,
-        .heart = sprite_manager.find("heart").?,
-        .potion = sprite_manager.find("potion").?,
-        .power_indicator_empty = sprite_manager.find("power-indicator-empty").?,
-        .decor = .{
-            sprite_manager.find("decor-0").?,
-            sprite_manager.find("decor-1").?,
-        },
-    };
 
     var player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
     audio_manager.play(.Respawn);
@@ -890,7 +641,7 @@ pub fn main() !void {
 
     var game_manager = GameManager{};
 
-    c.SetMasterVolume(0.005);
+    c.SetMasterVolume(0.05);
 
     while (!c.WindowShouldClose()) {
         frame_messages.clearRetainingCapacity();
@@ -945,7 +696,7 @@ pub fn main() !void {
             audio_manager,
         );
         cleanupEntities(&entity_manager);
-        render(&entity_manager, &sprite_manager, &texture_manager, input, config);
+        render(&entity_manager, &sprite_manager, input, config);
 
         frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
             frame_allocator,
