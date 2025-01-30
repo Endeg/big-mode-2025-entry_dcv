@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "unnamed-game-jam-entry",
+        .name = "captain_volt",
         .root_module = exe_mod,
     });
     exe.addLibraryPath(.{ .cwd_relative = "libs/raylib/lib" });

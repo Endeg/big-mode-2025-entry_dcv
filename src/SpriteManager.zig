@@ -133,7 +133,7 @@ const SpriteInfos = std.EnumArray(SpriteHandle, SpriteInfo).init(.{
     },
     .Enemy0 = .{
         .texture = .Enemy0,
-        .origin = .{ .x = 0.5, .y = 0.1 },
+        .origin = .{ .x = 0.5, .y = 1 },
     },
     .Heart = .{
         .texture = .Heart,

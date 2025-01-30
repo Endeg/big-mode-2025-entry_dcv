@@ -375,6 +375,10 @@ fn update(
             if (i != j and flags[i].alive and flags[i].collideable) {
                 if (flags[i].class == .Projectile and flags[j].class == .Supostat) {
                     const real_position_b = c.Vector2Add(c.Vector2Add(position[j], .{ .y = -above_ground_value[j] }), .{ .y = -config.general_center_from_bottom });
+                    if (DebugMode) {
+                        c.DrawCircleV(real_position_b, config.general_radius, c.GOLD);
+                        c.DrawCircleV(position[i], config.projectile_radius, c.YELLOW);
+                    }
                     if (c.Vector2Distance(position[i], real_position_b) <= config.general_radius + config.projectile_radius) {
                         audio_manager.playOneOf(rng, &.{ .Damage0, .Damage1, .Damage2, .Damage3, .Damage4 });
                         health[j] -= 1;
@@ -580,7 +584,9 @@ pub fn main() !void {
         config = loaded_config;
     }
 
-    c.InitWindow(1280, 720, "Unnamed Game Jam Entry");
+    c.SetConfigFlags(c.FLAG_WINDOW_RESIZABLE);
+    c.InitWindow(1280, 720, "The Discharge of Captain Volt");
+
     defer c.CloseWindow();
     c.InitAudioDevice();
     defer c.CloseAudioDevice();
