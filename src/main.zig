@@ -69,7 +69,7 @@ const GameManager = struct {
     };
 
     pub fn startRespawnCounter(self: *Self) void {
-        self.respawn_time = 3;
+        self.respawn_time = 300;
         self.state = .RespawnScreen;
     }
 
@@ -585,7 +585,10 @@ pub fn main() !void {
     }
 
     c.SetConfigFlags(c.FLAG_WINDOW_RESIZABLE);
-    c.InitWindow(1280, 720, "The Discharge of Captain Volt");
+
+    const CanonicalScreenWidth = 1280;
+
+    c.InitWindow(CanonicalScreenWidth, 720, "The Discharge of Captain Volt");
 
     defer c.CloseWindow();
     c.InitAudioDevice();
@@ -626,16 +629,6 @@ pub fn main() !void {
         }
     }
 
-    const screen_width: f32 = @floatFromInt(c.GetScreenWidth());
-    const screen_height: f32 = @floatFromInt(c.GetScreenHeight());
-
-    var camera = c.Camera2D{
-        .offset = .{ .x = screen_width * 0.5, .y = screen_height * 0.5 },
-        .rotation = 0,
-        .target = .{ .x = 0, .y = 0 },
-        .zoom = 3,
-    };
-
     var frame_messages = try std.ArrayList([]const u8).initCapacity(gpa.allocator(), 1024);
     defer frame_messages.deinit();
     const frame_memory = try gpa.allocator().alloc(u8, 1 * 1024 * 1024);
@@ -648,6 +641,8 @@ pub fn main() !void {
     var game_manager = GameManager{};
 
     c.SetMasterVolume(0.05);
+
+    var camera_position = c.Vector2{};
 
     while (!c.WindowShouldClose()) {
         frame_messages.clearRetainingCapacity();
@@ -675,11 +670,25 @@ pub fn main() !void {
             }
         }
 
+        const screen_width: f32 = @floatFromInt(c.GetScreenWidth());
+        const screen_height: f32 = @floatFromInt(c.GetScreenHeight());
+
+        const factor = screen_width / CanonicalScreenWidth;
+
         var player_position_for_pursuit: ?c.Vector2 = null;
         if (entity_manager.entityField(player_handle, .position)) |player_position| {
-            camera.target = c.Vector2Lerp(camera.target, player_position.*, config.camera_lerp_value);
+            camera_position = c.Vector2Lerp(camera_position, player_position.*, config.camera_lerp_value);
             player_position_for_pursuit = player_position.*;
         }
+
+        const Zoom = 3;
+
+        const camera = c.Camera2D{
+            .offset = .{ .x = screen_width * 0.5, .y = screen_height * 0.5 },
+            .rotation = 0,
+            .target = camera_position,
+            .zoom = Zoom * factor,
+        };
 
         c.BeginDrawing();
         defer c.EndDrawing();
@@ -746,18 +755,19 @@ pub fn main() !void {
         c.EndMode2D();
 
         const gui_camera = c.Camera2D{
-            .target = .{},
-            .zoom = 3,
+            .zoom = Zoom,
         };
 
         c.BeginMode2D(gui_camera);
 
+        //TODO: Finish placing UI elements.
+
         if (game_manager.state == .RespawnScreen) {
-            const zoomed_screen_width = screen_width / 3;
-            const zoomed_screen_height = screen_height / 3;
+            const zoomed_screen_width = screen_width / Zoom;
+
             const font_size = 20;
             const padding = 8;
-            const vertical_offset = font_size + padding;
+            //const vertical_offset = font_size + padding;
 
             //TODO: Animate this screen
 
@@ -765,7 +775,13 @@ pub fn main() !void {
                 const text: [*c]const u8 = "Dudes overwhelmed you!";
 
                 const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
-                c.DrawText(text, @intFromFloat((zoomed_screen_width - width) / 2), @intFromFloat(zoomed_screen_height / 2 - vertical_offset), font_size, c.RAYWHITE);
+                c.DrawText(
+                    text,
+                    @intFromFloat((zoomed_screen_width - width) * 0.5),
+                    60,
+                    font_size,
+                    c.RAYWHITE,
+                );
             }
             {
                 const text = try std.fmt.allocPrintZ(
@@ -774,7 +790,13 @@ pub fn main() !void {
                     .{game_manager.respawn_time},
                 );
                 const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
-                c.DrawText(text.ptr, @intFromFloat((zoomed_screen_width - width) / 2), @intFromFloat(zoomed_screen_height / 2 + font_size + padding - vertical_offset), font_size, c.RAYWHITE);
+                c.DrawText(
+                    text.ptr,
+                    @intFromFloat((zoomed_screen_width - width) * 0.5),
+                    60 + padding + font_size,
+                    font_size,
+                    c.RAYWHITE,
+                );
             }
         } else if (game_manager.state == .Playing) {
             if (entity_manager.entityField(player_handle, .health)) |player_health| {
@@ -786,6 +808,8 @@ pub fn main() !void {
                     pos.x += sprite.size.x;
                 }
             }
+
+            c.DrawRectangleV(.{ .x = (screen_width / 3) - 32 - 2, .y = 4 }, .{ .x = 32, .y = 10 }, c.GOLD);
         }
 
         c.EndMode2D();
