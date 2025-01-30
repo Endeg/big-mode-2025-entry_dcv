@@ -11,3 +11,5 @@ zig-out/
 *.py
 
 .vscode/
+
+assets-to-embed/

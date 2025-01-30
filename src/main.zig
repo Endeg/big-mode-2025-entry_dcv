@@ -813,7 +813,7 @@ pub fn main() !void {
 
     var config_watcher = try util.FileWatcher.init(".", "config.json", 0.5);
 
-    const audio_manager = try AudioManager.init(gpa.allocator());
+    const audio_manager = AudioManager.init();
 
     var texture_manager = try TextureManager.init(gpa.allocator());
     defer texture_manager.deinit();
@@ -890,7 +890,7 @@ pub fn main() !void {
 
     var game_manager = GameManager{};
 
-    c.SetMasterVolume(0.1);
+    c.SetMasterVolume(0.005);
 
     while (!c.WindowShouldClose()) {
         frame_messages.clearRetainingCapacity();
