@@ -153,7 +153,7 @@ fn update(
     frame_messages: *std.ArrayList([]const u8),
     frame_allocator: std.mem.Allocator,
     rng: std.Random,
-    player_position: c.Vector2,
+    player_position: ?c.Vector2,
     audio_manager: AudioManager,
 ) !void {
     var i: usize = 0;
@@ -194,10 +194,13 @@ fn update(
                 flags[i].alive = false;
             }
         } else if (flags[i].class == .Supostat) {
-            if (c.Vector2Distance(player_position, position[i]) <= config.enemy_aggression_distance) {
-                enemy_behavior[i].mode = .Pursuit;
-            } else {
-                enemy_behavior[i].mode = .Loiter;
+            enemy_behavior[i].mode = .Loiter;
+            var player_position_for_pursuit: c.Vector2 = .{};
+            if (player_position) |provided_player_position| {
+                if (c.Vector2Distance(provided_player_position, position[i]) <= config.enemy_aggression_distance) {
+                    enemy_behavior[i].mode = .Pursuit;
+                    player_position_for_pursuit = provided_player_position;
+                }
             }
 
             switch (enemy_behavior[i].mode) {
@@ -214,8 +217,8 @@ fn update(
                     enemy_behavior[i].commit_to_direction = .{};
 
                     const actual_target_position = c.Vector2{
-                        .x = player_position.x + (rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
-                        .y = player_position.y + (rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
+                        .x = player_position_for_pursuit.x + (rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
+                        .y = player_position_for_pursuit.y + (rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
                     };
 
                     if (actual_target_position.y > position[i].y) {
@@ -231,24 +234,21 @@ fn update(
                 },
                 .Avoid => {
                     enemy_behavior[i].commit_to_direction = .{};
-                    if (player_position.y > position[i].y) {
+                    if (player_position_for_pursuit.y > position[i].y) {
                         enemy_behavior[i].commit_to_direction.y = -1;
-                    } else if (player_position.y < position[i].y) {
+                    } else if (player_position_for_pursuit.y < position[i].y) {
                         enemy_behavior[i].commit_to_direction.y = 1;
                     }
-                    if (player_position.x > position[i].x) {
+                    if (player_position_for_pursuit.x > position[i].x) {
                         enemy_behavior[i].commit_to_direction.x = -1;
-                    } else if (player_position.x < position[i].x) {
+                    } else if (player_position_for_pursuit.x < position[i].x) {
                         enemy_behavior[i].commit_to_direction.x = 1;
                     }
                 },
             }
 
             enemy_behavior[i].commit_to_direction = c.Vector2Normalize(enemy_behavior[i].commit_to_direction);
-
-            //TODO: Enemy stuff
             acceleration[i] = enemy_behavior[i].commit_to_direction;
-            //TODO: Proper config
             acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.enemy_acc_magnitude);
         }
 
@@ -669,7 +669,7 @@ pub fn main() !void {
             }
         }
 
-        var player_position_for_pursuit = c.Vector2{};
+        var player_position_for_pursuit: ?c.Vector2 = null;
         if (entity_manager.entityField(player_handle, .position)) |player_position| {
             camera.target = c.Vector2Lerp(camera.target, player_position.*, config.camera_lerp_value);
             player_position_for_pursuit = player_position.*;
