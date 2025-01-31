@@ -59,6 +59,7 @@ const AudioAsset = enum {
     EnemyFell2,
     PlayerFell,
     Respawn,
+    Pickup,
 };
 
 const AudioAssets = std.EnumArray(AudioAsset, []const u8).init(.{
@@ -78,4 +79,5 @@ const AudioAssets = std.EnumArray(AudioAsset, []const u8).init(.{
     .DamageFromSupostat3 = @embedFile(AudioAssetsDir ++ "Weapons/Melee/sfx_wpn_punch4.wav"),
     .PlayerFell = @embedFile(AudioAssetsDir ++ "General Sounds/Negative Sounds/sfx_sounds_negative1.wav"),
     .Respawn = @embedFile(AudioAssetsDir ++ "General Sounds/Positive Sounds/sfx_sounds_powerup2.wav"),
+    .Pickup = @embedFile(AudioAssetsDir ++ "General Sounds/Positive Sounds/sfx_sounds_powerup6.wav"),
 });

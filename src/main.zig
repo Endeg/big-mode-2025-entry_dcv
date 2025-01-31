@@ -10,15 +10,12 @@ const GlobalConfig = @import("GlobalConfig.zig");
 
 //TODO: GPA allocator: dupeZ/free - possible bug
 
-// TODO: Audio assets - load/play
 // TODO: Main game loop:
 //         1. Shoot dudes.
 //         2. Don't let the dudes overwhelm you.
-//        >3. Pick up batteries to "charge" you.
-//            TODO: Make pickable batteries and charge meter that changes how awesome you can shoot.
-//         4. When charge is low - shoot less, high - shoot more, maybe even with spread shoot.
+//        +3. Pick up batteries to "charge" you.
+//        +4. When charge is low - shoot less, high - shoot more, maybe even with spread shoot.
 //         5. Try to have fun.
-// TODO: GUI - health, batteries, also change damage system to number of hits.
 // TODO: Spawn enemies around you not in random places. Keep count to decide if more needs to be spawn.
 // TODO: Juice:
 //        +1. Hop animation while walking.
@@ -26,7 +23,7 @@ const GlobalConfig = @import("GlobalConfig.zig");
 //        +3. Audio.
 //         4. Some fancy effects.
 //         5. Blaster animation, use cooldown timer.
-//         6. Trees, bushes and roads to have background.
+//        +6. Trees, bushes and roads to have background.
 // TODO: Gamepad support
 
 const EntityManager = @import("entity.zig").EntityManager;
@@ -399,9 +396,10 @@ fn update(
                         c.DrawCircleV(real_position_b, config.general_radius, c.YELLOW);
                     }
                     if (c.Vector2Distance(real_position_p, real_position_b) <= config.general_radius * 2) {
-                        audio_manager.play(.Respawn); //TODO: Use other sound
+                        audio_manager.play(.Pickup);
                         energy[i] = std.math.clamp(energy[i] + config.battery_energy_amount, 0, GigaEntity.MaxEnergy);
                         flags[j].alive = false;
+                        //TODO: Pickup animation
                     }
                 }
                 if (flags[i].class == .Projectile and flags[j].class == .Supostat) {
