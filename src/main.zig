@@ -384,6 +384,7 @@ fn update(
                         health[j] -= 1;
                         flags[i].alive = false;
                         damage_animation[j] = 1;
+
                         velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor));
 
                         //TODO: Some particles
@@ -399,9 +400,8 @@ fn update(
                     const real_position_p = c.Vector2Add(c.Vector2Add(position[j], .{ .y = -above_ground_value[j] }), .{ .y = -config.general_center_from_bottom });
 
                     if (c.Vector2Distance(real_position_s, real_position_p) <= config.general_radius * 2) {
-                        //TODO: config.damage_inertia_factor * 0.2 - to config
-                        velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor * 0.2));
                         if (iframes[j] <= 0) {
+                            velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor * 0.2));
                             audio_manager.playOneOf(rng, &.{ .DamageFromSupostat0, .DamageFromSupostat1, .DamageFromSupostat2, .DamageFromSupostat3 });
                             health[j] -= 1;
                             damage_animation[j] = 1;
@@ -459,8 +459,6 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
                 }
             }
         }
-
-        //TODO: Draw trees/bushes and stuff
     }
 
     inline for (@typeInfo(GigaEntity.Layer).@"enum".fields) |layer_field| {
@@ -473,77 +471,86 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
             const damage_animation = em.entities.items(.damage_animation);
             const layer = em.entities.items(.layer);
             const above_ground_value = em.entities.items(.above_ground_value);
+            const iframes = em.entities.items(.iframes);
             if (flags[i].visual and current_layer == layer[i]) {
                 if (flags[i].class == .Player) {
-                    const final_position = c.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
-                    const player_sprite = sm.get(.Player);
-                    {
-                        const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
-                        drawSprite(player_sprite, final_position, 0, final_tint);
+                    if (iframes[i] > 0) {
+                        iframe_blink = !iframe_blink;
+                    } else {
+                        iframe_blink = true;
                     }
-                    const blaster_sprite = sm.get(.Blaster);
 
-                    const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
-                    if (is_shooting) {
-                        const shoot_direction = determineDirection(
-                            input.shoot_up,
-                            input.shoot_down,
-                            input.shoot_left,
-                            input.shoot_right,
-                        );
-
-                        const blaster_position = c.Vector2Add(
-                            c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
-                            c.Vector2Add(
-                                final_position,
-                                c.Vector2Scale(shoot_direction, config.player_blaster_distance),
-                            ),
-                        );
-
-                        // Can't figure out how to get direction vector's angle
-                        // and to not waste time, here's the solution.
-
-                        const Angles = [_]f32{
-                            0 * 45, //       Right
-                            1 * 45, // Down  Right
-                            2 * 45, // Down
-                            3 * 45, // Down  Left
-                            4 * 45, //       Left
-                            5 * 45, // Up    Left
-                            6 * 45, // Up
-                            7 * 45, // Up    Right
-                        };
-
-                        var angle_index: usize = 0;
-
-                        if (input.shoot_up and input.shoot_right) {
-                            angle_index = 7;
-                        } else if (input.shoot_up and input.shoot_left) {
-                            angle_index = 5;
-                        } else if (input.shoot_down and input.shoot_right) {
-                            angle_index = 1;
-                        } else if (input.shoot_down and input.shoot_left) {
-                            angle_index = 3;
-                        } else if (input.shoot_up) {
-                            angle_index = 6;
-                        } else if (input.shoot_down) {
-                            angle_index = 2;
-                        } else if (input.shoot_left) {
-                            angle_index = 4;
-                        } else if (input.shoot_right) {
-                            angle_index = 0;
-                        }
-
-                        const angle = Angles[angle_index];
-
-                        // frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
-                        //     frame_allocator,
-                        //     "player.blaster_angle = {d:.4}.",
-                        //     .{angle},
-                        // ));
+                    if (iframe_blink) {
+                        const final_position = c.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
+                        const player_sprite = sm.get(.Player);
                         {
-                            const final_tint = c.ColorLerp(c.DARKGREEN, c.WHITE, damage_animation[i]);
-                            drawSprite(blaster_sprite, blaster_position, angle, final_tint);
+                            const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
+                            drawSprite(player_sprite, final_position, 0, final_tint);
+                        }
+                        const blaster_sprite = sm.get(.Blaster);
+
+                        const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
+                        if (is_shooting) {
+                            const shoot_direction = determineDirection(
+                                input.shoot_up,
+                                input.shoot_down,
+                                input.shoot_left,
+                                input.shoot_right,
+                            );
+
+                            const blaster_position = c.Vector2Add(
+                                c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
+                                c.Vector2Add(
+                                    final_position,
+                                    c.Vector2Scale(shoot_direction, config.player_blaster_distance),
+                                ),
+                            );
+
+                            // Can't figure out how to get direction vector's angle
+                            // and to not waste time, here's the solution.
+
+                            const Angles = [_]f32{
+                                0 * 45, //       Right
+                                1 * 45, // Down  Right
+                                2 * 45, // Down
+                                3 * 45, // Down  Left
+                                4 * 45, //       Left
+                                5 * 45, // Up    Left
+                                6 * 45, // Up
+                                7 * 45, // Up    Right
+                            };
+
+                            var angle_index: usize = 0;
+
+                            if (input.shoot_up and input.shoot_right) {
+                                angle_index = 7;
+                            } else if (input.shoot_up and input.shoot_left) {
+                                angle_index = 5;
+                            } else if (input.shoot_down and input.shoot_right) {
+                                angle_index = 1;
+                            } else if (input.shoot_down and input.shoot_left) {
+                                angle_index = 3;
+                            } else if (input.shoot_up) {
+                                angle_index = 6;
+                            } else if (input.shoot_down) {
+                                angle_index = 2;
+                            } else if (input.shoot_left) {
+                                angle_index = 4;
+                            } else if (input.shoot_right) {
+                                angle_index = 0;
+                            }
+
+                            const angle = Angles[angle_index];
+
+                            // frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                            //     frame_allocator,
+                            //     "player.blaster_angle = {d:.4}.",
+                            //     .{angle},
+                            // ));
+                            {
+                                const final_tint = c.ColorLerp(c.DARKGREEN, c.WHITE, damage_animation[i]);
+                                drawSprite(blaster_sprite, blaster_position, angle, final_tint);
+                            }
                         }
                     }
                 } else if (flags[i].class == .Battery) {
@@ -578,6 +585,51 @@ fn cleanupEntities(em: *EntityManager) void {
 
 const DebugMode = false;
 
+const MaxEnergy: f32 = 100;
+
+fn drawBatteryIcon(zoomed_screen_width: f32, energy: f32) void {
+    const pad: f32 = 4;
+    const width_px: f32 = 16;
+    const height_px: f32 = 8;
+
+    const low_energy: f32 = 5;
+
+    const max_energy_px = width_px - 4;
+
+    const energy_px: f32 = @trunc((max_energy_px * energy) / MaxEnergy);
+
+    const pos = c.Vector2{ .x = zoomed_screen_width - width_px - pad, .y = pad };
+
+    const color = if (energy >= low_energy) c.WHITE else c.RED;
+
+    c.DrawRectangleV(
+        .{ .x = pos.x, .y = pos.y + 1 },
+        .{ .x = 1, .y = height_px - 2 },
+        color,
+    );
+    c.DrawRectangleV(
+        .{ .x = pos.x + width_px - 1, .y = pos.y + 1 },
+        .{ .x = 1, .y = height_px - 2 },
+        color,
+    );
+    c.DrawRectangleV(
+        .{ .x = pos.x + 1, .y = pos.y },
+        .{ .x = width_px - 2, .y = 1 },
+        color,
+    );
+    c.DrawRectangleV(
+        .{ .x = pos.x + 1, .y = pos.y + height_px - 1 },
+        .{ .x = width_px - 2, .y = 1 },
+        color,
+    );
+
+    c.DrawRectangleV(
+        .{ .x = pos.x + 2, .y = pos.y + 2 },
+        .{ .x = energy_px, .y = height_px - 4 },
+        color,
+    );
+}
+
 pub fn main() !void {
     var gpa = GPA{};
 
@@ -592,9 +644,7 @@ pub fn main() !void {
 
     c.SetConfigFlags(c.FLAG_WINDOW_RESIZABLE);
 
-    const CanonicalScreenWidth = 1280;
-
-    c.InitWindow(CanonicalScreenWidth, 720, "The Discharge of Captain Volt");
+    c.InitWindow(1280, 720, "The Discharge of Captain Volt");
 
     defer c.CloseWindow();
     c.InitAudioDevice();
@@ -679,8 +729,6 @@ pub fn main() !void {
         const screen_width: f32 = @floatFromInt(c.GetScreenWidth());
         const screen_height: f32 = @floatFromInt(c.GetScreenHeight());
 
-        const factor = screen_width / CanonicalScreenWidth;
-
         var player_position_for_pursuit: ?c.Vector2 = null;
         if (entity_manager.entityField(player_handle, .position)) |player_position| {
             camera_position = c.Vector2Lerp(camera_position, player_position.*, config.camera_lerp_value);
@@ -693,7 +741,7 @@ pub fn main() !void {
             .offset = .{ .x = screen_width * 0.5, .y = screen_height * 0.5 },
             .rotation = 0,
             .target = camera_position,
-            .zoom = Zoom * factor,
+            .zoom = Zoom,
         };
 
         c.BeginDrawing();
@@ -767,12 +815,12 @@ pub fn main() !void {
         c.BeginMode2D(gui_camera);
 
         //TODO: Finish placing UI elements.
-
+        const zoomed_screen_width = screen_width / Zoom;
+        const zoomed_screen_height = screen_height / Zoom;
         if (game_manager.state == .RespawnScreen) {
-            const zoomed_screen_width = screen_width / Zoom;
-
             const font_size = 20;
             const padding = 8;
+            const full_text_height = font_size * 2 + 8;
             //const vertical_offset = font_size + padding;
 
             //TODO: Animate this screen
@@ -784,7 +832,7 @@ pub fn main() !void {
                 c.DrawText(
                     text,
                     @intFromFloat((zoomed_screen_width - width) * 0.5),
-                    60,
+                    @intFromFloat((zoomed_screen_height - full_text_height) * 0.5),
                     font_size,
                     c.RAYWHITE,
                 );
@@ -799,7 +847,7 @@ pub fn main() !void {
                 c.DrawText(
                     text.ptr,
                     @intFromFloat((zoomed_screen_width - width) * 0.5),
-                    60 + padding + font_size,
+                    @intFromFloat((zoomed_screen_height - full_text_height) * 0.5 + padding + font_size),
                     font_size,
                     c.RAYWHITE,
                 );
@@ -815,7 +863,12 @@ pub fn main() !void {
                 }
             }
 
-            c.DrawRectangleV(.{ .x = (screen_width / 3) - 32 - 2, .y = 4 }, .{ .x = 32, .y = 10 }, c.GOLD);
+            tmp_energy -= 0.07;
+            if (tmp_energy <= 0) {
+                tmp_energy = MaxEnergy;
+            }
+
+            drawBatteryIcon(zoomed_screen_width, tmp_energy);
         }
 
         c.EndMode2D();
@@ -837,3 +890,6 @@ pub fn main() !void {
         }
     }
 }
+
+var tmp_energy: f32 = MaxEnergy;
+var iframe_blink: bool = true;
