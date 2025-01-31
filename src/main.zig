@@ -658,6 +658,10 @@ fn drawBatteryIcon(zoomed_screen_width: f32, energy: f32) void {
 }
 
 pub fn main() !void {
+    if (@import("builtin").mode == .ReleaseFast) {
+        c.SetTraceLogLevel(c.LOG_ERROR);
+    }
+
     var gpa = GPA{};
 
     defer if (gpa.deinit() == .leak) {

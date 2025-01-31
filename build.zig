@@ -17,6 +17,9 @@ pub fn build(b: *std.Build) void {
     exe.addLibraryPath(.{ .cwd_relative = "libs/raylib/lib" });
     exe.linkLibC();
     exe.linkSystemLibrary("raylib");
+    if (target.result.os.tag == .windows and optimize == .ReleaseFast) {
+        exe.subsystem = .Windows;
+    }
 
     b.installArtifact(exe);
 
