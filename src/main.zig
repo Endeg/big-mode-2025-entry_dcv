@@ -387,9 +387,23 @@ fn update(
         const damage_animation = em.entities.items(.damage_animation);
         const iframes = em.entities.items(.iframes);
         const above_ground_value = em.entities.items(.above_ground_value);
+        const energy = em.entities.items(.energy);
         var j: usize = 0;
         while (j < em.entities.len) : (j += 1) {
             if (i != j and flags[i].alive and flags[i].collideable) {
+                if (flags[i].class == .Player and flags[j].class == .Battery and flags[j].alive) {
+                    const real_position_p = c.Vector2Add(c.Vector2Add(position[i], .{ .y = -above_ground_value[i] }), .{ .y = -config.general_center_from_bottom });
+                    const real_position_b = c.Vector2Add(position[j], .{ .y = -config.general_center_from_bottom });
+                    if (DebugMode) {
+                        c.DrawCircleV(real_position_p, config.general_radius, c.GOLD);
+                        c.DrawCircleV(real_position_b, config.general_radius, c.YELLOW);
+                    }
+                    if (c.Vector2Distance(real_position_p, real_position_b) <= config.general_radius * 2) {
+                        audio_manager.play(.Respawn); //TODO: Use other sound
+                        energy[i] = std.math.clamp(energy[i] + config.battery_energy_amount, 0, GigaEntity.MaxEnergy);
+                        flags[j].alive = false;
+                    }
+                }
                 if (flags[i].class == .Projectile and flags[j].class == .Supostat) {
                     const real_position_b = c.Vector2Add(c.Vector2Add(position[j], .{ .y = -above_ground_value[j] }), .{ .y = -config.general_center_from_bottom });
                     if (DebugMode) {
