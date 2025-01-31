@@ -13,6 +13,7 @@ pub const GigaEntity = struct {
     velocity: c.Vector2 = .{},
     health: i8 = 5,
     iframes: f32 = 0,
+    energy: f32 = MaxEnergy,
 
     shoot_info: ShootInfo = .{},
     ttl: f32 = 0,
@@ -64,6 +65,8 @@ pub const GigaEntity = struct {
         MoreSprites,
         Foreground,
     };
+
+    pub const MaxEnergy: f32 = 100;
 
     const Self = @This();
 

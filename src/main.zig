@@ -169,6 +169,7 @@ fn update(
         const iframes = em.entities.items(.iframes);
         const hop_value = em.entities.items(.hop_value);
         const above_ground_value = em.entities.items(.above_ground_value);
+        const energy = em.entities.items(.energy);
 
         //TODO: Proper units: e.g. 16px - 1 meter or something.
 
@@ -310,7 +311,7 @@ fn update(
 
         if (flags[i].class == .Player) {
             if (shoot_info[i].cooldown > 0) {
-                shoot_info[i].cooldown = std.math.clamp(shoot_info[i].cooldown - input.dt, 0, config.player_shoot_cooldown);
+                shoot_info[i].cooldown = @max(shoot_info[i].cooldown - input.dt, 0);
             }
 
             const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
@@ -337,8 +338,24 @@ fn update(
                 ));
                 audio_manager.play(.Pew);
 
-                shoot_info[i].cooldown = config.player_shoot_cooldown;
+                var cooldown_factor: f32 = 1;
+
+                if (energy[i] == 0) {
+                    cooldown_factor = 8;
+                } else if (energy[i] < 20) {
+                    cooldown_factor = 5;
+                } else if (energy[i] < 40) {
+                    cooldown_factor = 3;
+                } else if (energy[i] < 60) {
+                    cooldown_factor = 1.7;
+                } else if (energy[i] < 80) {
+                    cooldown_factor = 1.2;
+                }
+
+                shoot_info[i].cooldown = config.player_shoot_cooldown * cooldown_factor;
+                energy[i] = std.math.clamp(energy[i] - config.shoot_energy_cost, 0, GigaEntity.MaxEnergy);
             }
+
             frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
                 frame_allocator,
                 "player.shoot_cooldown = {d:.4}.",
@@ -585,18 +602,16 @@ fn cleanupEntities(em: *EntityManager) void {
 
 const DebugMode = false;
 
-const MaxEnergy: f32 = 100;
-
 fn drawBatteryIcon(zoomed_screen_width: f32, energy: f32) void {
     const pad: f32 = 4;
     const width_px: f32 = 16;
     const height_px: f32 = 8;
 
-    const low_energy: f32 = 5;
+    const low_energy: f32 = 10;
 
     const max_energy_px = width_px - 4;
 
-    const energy_px: f32 = @trunc((max_energy_px * energy) / MaxEnergy);
+    const energy_px: f32 = @trunc((max_energy_px * energy) / GigaEntity.MaxEnergy);
 
     const pos = c.Vector2{ .x = zoomed_screen_width - width_px - pad, .y = pad };
 
@@ -863,12 +878,9 @@ pub fn main() !void {
                 }
             }
 
-            tmp_energy -= 0.07;
-            if (tmp_energy <= 0) {
-                tmp_energy = MaxEnergy;
+            if (entity_manager.entityField(player_handle, .energy)) |player_energy| {
+                drawBatteryIcon(zoomed_screen_width, player_energy.*);
             }
-
-            drawBatteryIcon(zoomed_screen_width, tmp_energy);
         }
 
         c.EndMode2D();
@@ -891,5 +903,4 @@ pub fn main() !void {
     }
 }
 
-var tmp_energy: f32 = MaxEnergy;
 var iframe_blink: bool = true;
