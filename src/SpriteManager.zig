@@ -90,6 +90,7 @@ const TextureAsset = enum {
     Battery,
     Decor0,
     Decor1,
+    Helmet,
 };
 
 const TextureAssets = std.EnumArray(TextureAsset, []const u8).init(.{
@@ -102,6 +103,7 @@ const TextureAssets = std.EnumArray(TextureAsset, []const u8).init(.{
     .Battery = @embedFile("assets-to-embed/battery-item.png"),
     .Decor0 = @embedFile("assets-to-embed/tile-0x1.png"),
     .Decor1 = @embedFile("assets-to-embed/tile-0x2.png"),
+    .Helmet = @embedFile("assets-to-embed/tile-37x0.png"),
 });
 
 //---------------------------------------------
@@ -116,6 +118,7 @@ pub const SpriteHandle = enum {
     Battery,
     Decor0,
     Decor1,
+    Helmet,
 };
 
 const SpriteInfos = std.EnumArray(SpriteHandle, SpriteInfo).init(.{
@@ -137,6 +140,10 @@ const SpriteInfos = std.EnumArray(SpriteHandle, SpriteInfo).init(.{
     },
     .Heart = .{
         .texture = .Heart,
+        .origin = .{ .x = 0, .y = 0 },
+    },
+    .Helmet = .{
+        .texture = .Helmet,
         .origin = .{ .x = 0, .y = 0 },
     },
     .Potion = .{

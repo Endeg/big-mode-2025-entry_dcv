@@ -60,6 +60,8 @@ const AudioAsset = enum {
     PlayerFell,
     Respawn,
     Pickup,
+    GameOver,
+    NewGame,
 };
 
 const AudioAssets = std.EnumArray(AudioAsset, []const u8).init(.{
@@ -80,4 +82,6 @@ const AudioAssets = std.EnumArray(AudioAsset, []const u8).init(.{
     .PlayerFell = @embedFile(AudioAssetsDir ++ "General Sounds/Negative Sounds/sfx_sounds_negative1.wav"),
     .Respawn = @embedFile(AudioAssetsDir ++ "General Sounds/Positive Sounds/sfx_sounds_powerup2.wav"),
     .Pickup = @embedFile(AudioAssetsDir ++ "General Sounds/Positive Sounds/sfx_sounds_powerup6.wav"),
+    .GameOver = @embedFile(AudioAssetsDir ++ "General Sounds/Weird Sounds/sfx_sound_shutdown2.wav"),
+    .NewGame = @embedFile(AudioAssetsDir ++ "General Sounds/Weird Sounds/sfx_sound_poweron.wav"),
 });

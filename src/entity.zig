@@ -172,6 +172,11 @@ pub const EntityManager = struct {
         self.entity_index.deinit(self.allocator);
     }
 
+    pub fn clear(self: *Self) void {
+        self.entities.clearRetainingCapacity();
+        self.entity_index.clearRetainingCapacity();
+    }
+
     pub fn createEntity(self: *Self, entity: GigaEntity) Handle {
         assert(self.entities.len == self.entity_index.count());
 

@@ -15,7 +15,7 @@
     "player_projectile_damping": 1,
     "player_projectile_max_velocity": 500,
     "player_projectile_ttl": 0.5,
-    "enemy_aggression_distance": 800,
+    "enemy_aggression_distance": 500,
     "enemy_aggression_distance_backup": 800,
     "damage_inertia_factor": 10,
     "enemy_pursuit_dispersal": 250,

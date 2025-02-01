@@ -16,7 +16,6 @@ const GlobalConfig = @import("GlobalConfig.zig");
 //        +3. Pick up batteries to "charge" you.
 //        +4. When charge is low - shoot less, high - shoot more, maybe even with spread shoot.
 //         5. Try to have fun.
-// TODO: Spawn enemies around you not in random places. Keep count to decide if more needs to be spawn.
 // TODO: Juice:
 //        +1. Hop animation while walking.
 //         2. Screen shake.
@@ -54,34 +53,72 @@ fn drawSprite(
 }
 
 const GameManager = struct {
-    state: State = .Playing,
+    state: State = .StartScreen,
     respawn_time: f32 = 0,
     enemies_count: usize = 0,
     target_enemies_count: usize = 50,
     base_enemy_health: i8 = 3,
     score: usize = 0,
+    guy_award_score: usize = 0,
+    battery_count: usize = 0,
+    max_batteries_count: usize = 50,
+    battery_spawn_time: f32 = BatterySpawnTimeout,
+    game_prng: std.Random.DefaultPrng = undefined,
+    guys_count: usize = 1, // 5,
+    rng: std.Random = undefined,
+    player_handle: EntityManager.Handle = undefined,
 
-    //TODO: Spawn batteries
-    //TODO: Life count and game-over
     //TODO: High-score on game-over screen
 
     const Self = @This();
 
     const State = enum {
+        StartScreen,
         Playing,
         RespawnScreen,
         ReadyToRespawn,
+        GameOver,
     };
 
-    pub fn startRespawnCounter(self: *Self) void {
-        self.respawn_time = 3;
-        self.state = .RespawnScreen;
+    const BatterySpawnTimeout: f32 = 2;
+    const BatterySpawnCount = 10;
+
+    const GuyAwardScore = 200;
+
+    pub fn reset(self: *Self, entity_manager: *EntityManager, audio_manager: AudioManager) void {
+        self.* = Self{};
+        self.game_prng = std.Random.DefaultPrng.init(@bitCast(std.time.milliTimestamp()));
+        self.rng = self.game_prng.random();
+        self.state = .Playing;
+
+        entity_manager.clear();
+        self.player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
+        audio_manager.play(.NewGame);
+    }
+
+    pub fn playerFell(self: *Self, audio_manager: AudioManager) void {
+        if (self.guys_count == 0) {
+            audio_manager.play(.GameOver);
+            self.state = .GameOver;
+        } else {
+            audio_manager.play(.PlayerFell);
+            self.respawn_time = 3;
+            self.state = .RespawnScreen;
+            if (self.guys_count > 0) {
+                self.guys_count -= 1;
+            }
+        }
+    }
+
+    pub fn respawnPlayer(self: *Self, entity_manager: *EntityManager, audio_manager: AudioManager) void {
+        self.player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
+        self.state = .Playing;
+        audio_manager.play(.Respawn);
     }
 
     pub fn update(
         self: *Self,
         input: Input,
-        player_handle: EntityManager.Handle,
         em: *EntityManager,
     ) void {
         if (self.state == .RespawnScreen) {
@@ -96,10 +133,21 @@ const GameManager = struct {
                 self.target_enemies_count = 300;
             } else if (self.score > 400) {
                 self.target_enemies_count = 600;
+            } else if (self.score > 600) {
+                self.target_enemies_count = 800;
+            } else if (self.score > 800) {
+                self.target_enemies_count = 1000;
             }
 
             if (self.enemies_count < self.target_enemies_count) {
-                self.spawnSupostat(player_handle, em, game_rng);
+                self.spawnSupostat(self.player_handle, em);
+            }
+
+            self.battery_spawn_time = @max(self.battery_spawn_time - input.dt, 0);
+            if (self.battery_spawn_time <= 0) {
+                self.battery_spawn_time = BatterySpawnTimeout;
+
+                self.spawnBattery(self.player_handle, em);
             }
         }
     }
@@ -108,20 +156,19 @@ const GameManager = struct {
         self: *Self,
         player_handle: EntityManager.Handle,
         entity_manager: *EntityManager,
-        rng: std.Random,
     ) void {
         if (entity_manager.entityField(player_handle, .position)) |player_position| {
             const DistanceMin: f32 = 300;
             const DistanceMax: f32 = DistanceMin + 120;
 
-            const radius = (rng.float(f32) * (DistanceMax - DistanceMin) + DistanceMin);
-            const angle = std.math.degreesToRadians(rng.float(f32) * 360);
+            const radius = (self.rng.float(f32) * (DistanceMax - DistanceMin) + DistanceMin);
+            const angle = std.math.degreesToRadians(self.rng.float(f32) * 360);
 
             const final_position = c.Vector2Add(player_position.*, c.Vector2Scale(c.Vector2Rotate(.{ .y = -1 }, angle), radius));
 
             self.enemies_count += 1;
             //TODO: Scale enemy health
-            _ = entity_manager.createEntity(GigaEntity.supostat(final_position, game_rng, 2));
+            _ = entity_manager.createEntity(GigaEntity.supostat(final_position, game_manager.rng, game_manager.base_enemy_health));
         }
     }
 
@@ -129,6 +176,45 @@ const GameManager = struct {
         self.score += 1;
         if (self.enemies_count > 0) {
             self.enemies_count -= 1;
+        }
+
+        self.guy_award_score += 1;
+        if (self.guy_award_score >= GuyAwardScore) {
+            self.guy_award_score = 0;
+            self.guys_count += 1;
+        }
+    }
+
+    pub fn spawnBattery(
+        self: *Self,
+        player_handle: EntityManager.Handle,
+        entity_manager: *EntityManager,
+    ) void {
+        if (entity_manager.entityField(player_handle, .position)) |player_position| {
+            if (self.battery_count < self.max_batteries_count) {
+                const DistanceMin: f32 = 70;
+                const DistanceMax: f32 = DistanceMin + 50;
+
+                const radius = (self.rng.float(f32) * (DistanceMax - DistanceMin) + DistanceMin);
+                const angle = std.math.degreesToRadians(self.rng.float(f32) * 360);
+
+                var final_position = c.Vector2Add(player_position.*, c.Vector2Scale(c.Vector2Rotate(.{ .y = -1 }, angle), radius));
+                final_position = c.Vector2Clamp(
+                    final_position,
+                    .{ .x = -ArenaWidth * 0.8 * 0.5, .y = -ArenaHeight * 0.8 * 0.5 },
+                    .{ .x = ArenaWidth * 0.8 * 0.5, .y = ArenaHeight * 0.8 * 0.5 },
+                );
+
+                self.battery_count += 1;
+                _ = entity_manager.createEntity(GigaEntity.battery(final_position));
+            }
+        }
+    }
+
+    pub fn batteryPickedUp(self: *Self, audio_manager: AudioManager) void {
+        audio_manager.play(.Pickup);
+        if (self.battery_count > 0) {
+            self.battery_count -= 1;
         }
     }
 };
@@ -201,7 +287,6 @@ fn update(
     config: GlobalConfig,
     frame_messages: *std.ArrayList([]const u8),
     frame_allocator: std.mem.Allocator,
-    rng: std.Random,
     player_position: ?c.Vector2,
     audio_manager: AudioManager,
 ) !void {
@@ -258,17 +343,17 @@ fn update(
                     enemy_behavior[i].time_to_next -= input.dt;
 
                     if (enemy_behavior[i].time_to_next <= 0) {
-                        enemy_behavior[i].time_to_next = rng.float(f32) * config.enemy_loiter_time;
-                        enemy_behavior[i].commit_to_direction.x = ((rng.floatExp(f32) * 2) - 1);
-                        enemy_behavior[i].commit_to_direction.y = ((rng.floatExp(f32) * 2) - 1);
+                        enemy_behavior[i].time_to_next = game_manager.rng.float(f32) * config.enemy_loiter_time;
+                        enemy_behavior[i].commit_to_direction.x = ((game_manager.rng.floatExp(f32) * 2) - 1);
+                        enemy_behavior[i].commit_to_direction.y = ((game_manager.rng.floatExp(f32) * 2) - 1);
                     }
                 },
                 .Pursuit => {
                     enemy_behavior[i].commit_to_direction = .{};
 
                     const actual_target_position = c.Vector2{
-                        .x = player_position_for_pursuit.x + (rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
-                        .y = player_position_for_pursuit.y + (rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
+                        .x = player_position_for_pursuit.x + (game_manager.rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
+                        .y = player_position_for_pursuit.y + (game_manager.rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
                     };
 
                     if (actual_target_position.y > position[i].y) {
@@ -334,8 +419,8 @@ fn update(
             if (flags[i].class == .Player or flags[i].class == .Supostat) {
                 position[i] = c.Vector2Clamp(
                     position[i],
-                    .{ .x = -ArenaWidth / 2, .y = -ArenaHeight / 2 },
-                    .{ .x = ArenaWidth / 2, .y = ArenaHeight / 2 },
+                    .{ .x = -ArenaWidth * 0.5, .y = -ArenaHeight * 0.5 },
+                    .{ .x = ArenaWidth * 0.5, .y = ArenaHeight * 0.5 },
                 );
 
                 const frame_distance = c.Vector2Distance(initial_position, position[i]);
@@ -448,7 +533,8 @@ fn update(
                         c.DrawCircleV(real_position_b, config.general_radius, c.YELLOW);
                     }
                     if (c.Vector2Distance(real_position_p, real_position_b) <= config.general_radius * 2) {
-                        audio_manager.play(.Pickup);
+                        game_manager.batteryPickedUp(audio_manager);
+
                         energy[i] = std.math.clamp(energy[i] + config.battery_energy_amount, 0, GigaEntity.MaxEnergy);
                         flags[j].alive = false;
                         //TODO: Pickup animation
@@ -461,7 +547,7 @@ fn update(
                         c.DrawCircleV(position[i], config.projectile_radius, c.YELLOW);
                     }
                     if (c.Vector2Distance(position[i], real_position_b) <= config.general_radius + config.projectile_radius) {
-                        audio_manager.playOneOf(rng, &.{ .Damage0, .Damage1, .Damage2, .Damage3, .Damage4 });
+                        audio_manager.playOneOf(game_manager.rng, &.{ .Damage0, .Damage1, .Damage2, .Damage3, .Damage4 });
                         health[j] -= 1;
                         flags[i].alive = false;
                         damage_animation[j] = 1;
@@ -472,7 +558,7 @@ fn update(
 
                         if (health[j] <= 0) {
                             flags[j].alive = false;
-                            audio_manager.playOneOf(rng, &.{ .EnemyFell0, .EnemyFell1, .EnemyFell2 });
+                            audio_manager.playOneOf(game_manager.rng, &.{ .EnemyFell0, .EnemyFell1, .EnemyFell2 });
                             game_manager.supostatFell();
                             //TODO: Death animation
                         }
@@ -484,7 +570,7 @@ fn update(
                     if (c.Vector2Distance(real_position_s, real_position_p) <= config.general_radius * 2) {
                         if (iframes[j] <= 0) {
                             velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor * 0.2));
-                            audio_manager.playOneOf(rng, &.{ .DamageFromSupostat0, .DamageFromSupostat1, .DamageFromSupostat2, .DamageFromSupostat3 });
+                            audio_manager.playOneOf(game_manager.rng, &.{ .DamageFromSupostat0, .DamageFromSupostat1, .DamageFromSupostat2, .DamageFromSupostat3 });
                             health[j] -= 1;
                             damage_animation[j] = 1;
                             iframes[j] = config.iframes;
@@ -493,9 +579,9 @@ fn update(
 
                             if (health[j] <= 0) {
                                 flags[j].alive = false;
-                                audio_manager.play(.PlayerFell);
-                                game_manager.startRespawnCounter();
-                                //TODO: Death animation/sound
+
+                                game_manager.playerFell(audio_manager);
+                                //TODO: Death animation
                             }
                         }
                     }
@@ -505,24 +591,24 @@ fn update(
     }
 }
 
-const ArenaWidth = 256 * 16;
-const ArenaHeight = 256 * 16;
+const ArenaWidth = 100 * 16;
+const ArenaHeight = 100 * 16;
 
 fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalConfig) void {
-    c.DrawRectangle(-ArenaWidth / 2, -ArenaHeight / 2, 1, ArenaHeight, c.GRAY);
-    c.DrawRectangle(ArenaWidth / 2, -ArenaHeight / 2, 1, ArenaHeight, c.GRAY);
+    c.DrawRectangle(-ArenaWidth * 0.5, -ArenaHeight * 0.5, 1, ArenaHeight, c.GRAY);
+    c.DrawRectangle(ArenaWidth * 0.5, -ArenaHeight * 0.5, 1, ArenaHeight, c.GRAY);
 
-    c.DrawRectangle(-ArenaWidth / 2, -ArenaHeight / 2, ArenaWidth, 1, c.GRAY);
-    c.DrawRectangle(-ArenaWidth / 2, ArenaHeight / 2, ArenaWidth + 1, 1, c.GRAY);
+    c.DrawRectangle(-ArenaWidth * 0.5, -ArenaHeight * 0.5, ArenaWidth, 1, c.GRAY);
+    c.DrawRectangle(-ArenaWidth * 0.5, ArenaHeight * 0.5, ArenaWidth + 1, 1, c.GRAY);
 
     {
         var frame_prng = std.Random.DefaultPrng.init(0x69);
         var frame_rng = frame_prng.random();
 
-        var x: f32 = -ArenaWidth / 2;
-        while (x < ArenaWidth / 2) : (x += 16) {
-            var y: f32 = -ArenaWidth / 2;
-            while (y < ArenaWidth / 2) : (y += 16) {
+        var x: f32 = -ArenaWidth * 0.5;
+        while (x < ArenaWidth * 0.5) : (x += 16) {
+            var y: f32 = -ArenaWidth * 0.5;
+            while (y < ArenaWidth * 0.5) : (y += 16) {
                 if (frame_rng.int(u16) < config.decor_magic) {
                     const DecorSprites = [_]SpriteHandle{ .Decor0, .Decor1 };
                     const decor_index = frame_rng.uintLessThan(usize, DecorSprites.len);
@@ -702,7 +788,6 @@ fn drawBatteryIcon(zoomed_screen_width: f32, energy: f32) void {
         .{ .x = width_px - 2, .y = 1 },
         color,
     );
-
     c.DrawRectangleV(
         .{ .x = pos.x + 2, .y = pos.y + 2 },
         .{ .x = energy_px, .y = height_px - 4 },
@@ -711,14 +796,6 @@ fn drawBatteryIcon(zoomed_screen_width: f32, energy: f32) void {
 }
 
 const Release = @import("builtin").mode == .ReleaseFast;
-
-var game_prng: std.Random.DefaultPrng = undefined;
-var game_rng: std.Random = undefined;
-
-fn reset() void {
-    game_prng = std.Random.DefaultPrng.init(@bitCast(std.time.milliTimestamp()));
-    game_rng = game_prng.random();
-}
 
 var game_manager = GameManager{};
 
@@ -756,27 +833,24 @@ pub fn main() !void {
     var entity_manager = try EntityManager.init(gpa.allocator());
     defer entity_manager.deinit();
 
-    var player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
-    audio_manager.play(.Respawn);
-
-    reset();
+    game_manager.reset(&entity_manager, audio_manager);
 
     if (false) {
         var entities_to_spawn: i32 = 100;
         while (entities_to_spawn >= 0) : (entities_to_spawn -= 1) {
             const Distribution = 200;
-            if (game_rng.boolean() and game_rng.boolean()) {
+            if (game_manager.rng.boolean() and game_manager.rng.boolean()) {
                 _ = entity_manager.createEntity(GigaEntity.battery(
                     .{
-                        .x = game_rng.floatNorm(f32) * Distribution - Distribution * 0.5,
-                        .y = game_rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                        .x = game_manager.rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                        .y = game_manager.rng.floatNorm(f32) * Distribution - Distribution * 0.5,
                     },
                 ));
             } else {
                 _ = entity_manager.createEntity(GigaEntity.supostat(.{
-                    .x = game_rng.floatNorm(f32) * Distribution - Distribution * 0.5,
-                    .y = game_rng.floatNorm(f32) * Distribution - Distribution * 0.5,
-                }, game_rng));
+                    .x = game_manager.rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                    .y = game_manager.rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                }, game_manager.rng));
             }
         }
     }
@@ -797,6 +871,12 @@ pub fn main() !void {
     while (!c.WindowShouldClose()) {
         frame_messages.clearRetainingCapacity();
         _ = frame_arena.reset(.retain_capacity);
+
+        if (game_manager.state == .GameOver) {
+            if (c.GetKeyPressed() > 0) {
+                game_manager.reset(&entity_manager, audio_manager);
+            }
+        }
 
         const input = Input{
             .dt = c.GetFrameTime(),
@@ -826,7 +906,7 @@ pub fn main() !void {
         const screen_height: f32 = @floatFromInt(c.GetScreenHeight());
 
         var player_position_for_pursuit: ?c.Vector2 = null;
-        if (entity_manager.entityField(player_handle, .position)) |player_position| {
+        if (entity_manager.entityField(game_manager.player_handle, .position)) |player_position| {
             camera_position = c.Vector2Lerp(camera_position, player_position.*, config.camera_lerp_value);
             player_position_for_pursuit = player_position.*;
         }
@@ -847,7 +927,7 @@ pub fn main() !void {
 
         c.ClearBackground(c.BLACK);
 
-        game_manager.update(input, player_handle, &entity_manager);
+        game_manager.update(input, &entity_manager);
 
         try update(
             &entity_manager,
@@ -855,7 +935,6 @@ pub fn main() !void {
             config,
             &frame_messages,
             frame_allocator,
-            game_rng,
             player_position_for_pursuit,
             audio_manager,
         );
@@ -911,72 +990,111 @@ pub fn main() !void {
 
         const zoomed_screen_width = screen_width / Zoom;
         const zoomed_screen_height = screen_height / Zoom;
-        if (game_manager.state == .RespawnScreen) {
-            const font_size = 20;
-            const padding = 8;
-            const full_text_height = font_size * 2 + 8;
+        switch (game_manager.state) {
+            .RespawnScreen => {
+                const font_size = 20;
+                const padding = 8;
+                const full_text_height = font_size * 2 + 8;
 
-            //TODO: Animate this screen
+                //TODO: Animate this screen
+                {
+                    const text: [*c]const u8 = "Dudes overwhelmed you!";
 
-            {
-                const text: [*c]const u8 = "Dudes overwhelmed you!";
-
-                const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
-                c.DrawText(
-                    text,
-                    @intFromFloat((zoomed_screen_width - width) * 0.5),
-                    @intFromFloat((zoomed_screen_height - full_text_height) * 0.5),
-                    font_size,
-                    c.RAYWHITE,
-                );
-            }
-            {
-                const text = try std.fmt.allocPrintZ(
-                    frame_allocator,
-                    "Respawn in = {d:.0}...",
-                    .{game_manager.respawn_time},
-                );
-                const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
-                c.DrawText(
-                    text.ptr,
-                    @intFromFloat((zoomed_screen_width - width) * 0.5),
-                    @intFromFloat((zoomed_screen_height - full_text_height) * 0.5 + padding + font_size),
-                    font_size,
-                    c.RAYWHITE,
-                );
-            }
-        } else if (game_manager.state == .Playing) {
-            if (entity_manager.entityField(player_handle, .health)) |player_health| {
-                var i: i8 = 0;
-                var pos = c.Vector2{ .x = 2, .y = 2 };
-                while (i < player_health.*) : (i += 1) {
-                    const sprite = sprite_manager.get(.Heart);
-                    drawSprite(sprite_manager.get(.Heart), pos, 0, c.RED);
-                    pos.x += sprite.size.x;
+                    const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
+                    c.DrawText(
+                        text,
+                        @intFromFloat((zoomed_screen_width - width) * 0.5),
+                        @intFromFloat((zoomed_screen_height - full_text_height) * 0.5),
+                        font_size,
+                        c.RAYWHITE,
+                    );
                 }
-            }
+                {
+                    const text = try std.fmt.allocPrintZ(
+                        frame_allocator,
+                        "Respawn in = {d:.0}...",
+                        .{game_manager.respawn_time},
+                    );
+                    const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
+                    c.DrawText(
+                        text.ptr,
+                        @intFromFloat((zoomed_screen_width - width) * 0.5),
+                        @intFromFloat((zoomed_screen_height - full_text_height) * 0.5 + padding + font_size),
+                        font_size,
+                        c.RAYWHITE,
+                    );
+                }
+            },
+            .Playing => {
+                if (entity_manager.entityField(game_manager.player_handle, .health)) |player_health| {
+                    var i: i8 = 0;
+                    var pos = c.Vector2{ .x = 2, .y = 2 };
+                    while (i < player_health.*) : (i += 1) {
+                        const sprite = sprite_manager.get(.Heart);
+                        drawSprite(sprite, pos, 0, c.RED);
+                        pos.x += sprite.size.x;
+                    }
+                }
+                {
+                    var i: i8 = 0;
+                    var pos = c.Vector2{ .x = 2, .y = zoomed_screen_height - 16 - 2 };
+                    while (i < game_manager.guys_count) : (i += 1) {
+                        const sprite = sprite_manager.get(.Helmet);
+                        drawSprite(sprite, pos, 0, c.LIME);
+                        pos.x += sprite.size.x;
+                    }
+                }
 
-            if (entity_manager.entityField(player_handle, .energy)) |player_energy| {
-                drawBatteryIcon(zoomed_screen_width, player_energy.*);
-            }
+                if (entity_manager.entityField(game_manager.player_handle, .energy)) |player_energy| {
+                    drawBatteryIcon(zoomed_screen_width, player_energy.*);
+                }
 
-            {
-                const score_font_size = 16;
+                {
+                    const score_font_size = 16;
+                    const padding = 4;
+                    const text = try std.fmt.allocPrintZ(
+                        frame_allocator,
+                        "{d}",
+                        .{game_manager.score},
+                    );
+                    const width: f32 = @floatFromInt(c.MeasureText(text, score_font_size));
+                    c.DrawText(
+                        text.ptr,
+                        @intFromFloat((zoomed_screen_width - width) * 0.5),
+                        @intFromFloat(padding),
+                        score_font_size,
+                        c.RAYWHITE,
+                    );
+                }
+            },
+            .GameOver => {
+                const game_over_font_size = 60;
                 const padding = 4;
-                const text = try std.fmt.allocPrintZ(
-                    frame_allocator,
-                    "{d}",
-                    .{game_manager.score},
-                );
-                const width: f32 = @floatFromInt(c.MeasureText(text, score_font_size));
-                c.DrawText(
-                    text.ptr,
-                    @intFromFloat((zoomed_screen_width - width) * 0.5),
-                    @intFromFloat(padding),
-                    score_font_size,
-                    c.RAYWHITE,
-                );
-            }
+                {
+                    const text: [*c]const u8 = "Discharged.";
+                    const width: f32 = @floatFromInt(c.MeasureText(text, game_over_font_size));
+                    c.DrawText(
+                        text,
+                        @intFromFloat((zoomed_screen_width - width) * 0.5),
+                        @intFromFloat((zoomed_screen_height - game_over_font_size) * 0.5),
+                        game_over_font_size,
+                        c.RAYWHITE,
+                    );
+                }
+                if (@mod(@trunc(c.GetTime() / 0.6), 2) > 0) {
+                    const font_size = 20;
+                    const text: [*c]const u8 = "Press any key to try again!";
+                    const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
+                    c.DrawText(
+                        text,
+                        @intFromFloat((zoomed_screen_width - width) * 0.5),
+                        @intFromFloat((zoomed_screen_height - font_size) * 0.5 + game_over_font_size + padding),
+                        font_size,
+                        c.RAYWHITE,
+                    );
+                }
+            },
+            else => {},
         }
 
         c.EndMode2D();
@@ -993,12 +1111,9 @@ pub fn main() !void {
         }
 
         if (game_manager.state == .ReadyToRespawn) {
-            log.debug("Spawning new player", .{});
-            player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
-            game_manager.state = .Playing;
-            audio_manager.play(.Respawn);
+            game_manager.respawnPlayer(&entity_manager, audio_manager);
         }
     }
 }
 
-var iframe_blink: bool = true;
+var iframe_blink: bool = true; //TODO: Use c.GetTime
