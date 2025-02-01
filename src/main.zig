@@ -55,16 +55,16 @@ fn drawSprite(
 const GameManager = struct {
     state: State = .StartScreen,
     respawn_time: f32 = 0,
-    enemies_count: usize = 0,
-    target_enemies_count: usize = 50,
+    enemies_count: u32 = 0,
+    target_enemies_count: u32 = 50,
     base_enemy_health: i8 = 3,
-    score: usize = 0,
-    guy_award_score: usize = 0,
-    battery_count: usize = 0,
-    max_batteries_count: usize = 50,
+    score: u32 = 0,
+    guy_award_score: u32 = 0,
+    battery_count: u32 = 0,
+    max_batteries_count: u32 = 50,
     battery_spawn_time: f32 = BatterySpawnTimeout,
     game_prng: std.Random.DefaultPrng = undefined,
-    guys_count: usize = 5,
+    guys_count: u32 = 5,
     rng: std.Random = undefined,
     player_handle: EntityManager.Handle = undefined,
 
@@ -176,6 +176,10 @@ const GameManager = struct {
         self.score += 1;
         if (self.enemies_count > 0) {
             self.enemies_count -= 1;
+        }
+
+        if (self.score > hi_score) {
+            hi_score = self.score;
         }
 
         self.guy_award_score += 1;
@@ -866,6 +870,16 @@ pub fn main() !void {
 
     var camera_position = c.Vector2{};
 
+    hi_score = loadHiScore(gpa.allocator());
+    defer {
+        saveHiScore() catch |err| {
+            log.err(
+                "{s} was not saved because of [{!}], but it was probably not OK.",
+                .{ HiScoreFile, err },
+            );
+        };
+    }
+
     while (!c.WindowShouldClose()) {
         frame_messages.clearRetainingCapacity();
         _ = frame_arena.reset(.retain_capacity);
@@ -1070,21 +1084,23 @@ pub fn main() !void {
                 }
             },
             .GameOver => {
-                generalScreenWithBlinkingPrompt(
+                try generalScreenWithBlinkingPrompt(
                     zoomed_screen_width,
                     zoomed_screen_height,
                     "Discharged.",
                     "Press any key to try again!",
                     60,
+                    frame_allocator,
                 );
             },
             .StartScreen => {
-                generalScreenWithBlinkingPrompt(
+                try generalScreenWithBlinkingPrompt(
                     zoomed_screen_width,
                     zoomed_screen_height,
                     "The Discharge of Captain Volt",
                     "Press any key to try again!",
                     27,
+                    frame_allocator,
                 );
             },
             else => {},
@@ -1115,7 +1131,8 @@ fn generalScreenWithBlinkingPrompt(
     top_text: [*c]const u8,
     blinking_text: [*c]const u8,
     top_font_size: c_int,
-) void {
+    frame_allocator: std.mem.Allocator,
+) !void {
     const padding = 4;
     const top_font_size_f: f32 = @floatFromInt(top_font_size);
     {
@@ -1139,6 +1156,59 @@ fn generalScreenWithBlinkingPrompt(
             c.RAYWHITE,
         );
     }
+
+    {
+        const score_font_size = 16;
+        const score_padding = 4;
+        const text = try std.fmt.allocPrintZ(
+            frame_allocator,
+            "hi-score {d}",
+            .{hi_score},
+        );
+        const width: f32 = @floatFromInt(c.MeasureText(text, score_font_size));
+        c.DrawText(
+            text.ptr,
+            @intFromFloat((zoomed_screen_width - width) * 0.5),
+            @intFromFloat(score_padding),
+            score_font_size,
+            c.RAYWHITE,
+        );
+    }
 }
 
 var iframe_blink: bool = true; //TODO: Use c.GetTime
+
+var hi_score: u32 = 0;
+
+const HiScoreFile = "hiscore.dat";
+
+fn loadHiScore(allocator: std.mem.Allocator) u32 {
+    const hi_score_data_maybe = util.readEntireFileAlloc(".", HiScoreFile, allocator);
+
+    if (hi_score_data_maybe) |hi_score_data| {
+        defer allocator.free(hi_score_data);
+        if (hi_score_data.len == @sizeOf(u32)) {
+            const p = @as(*align(1) const u32, @ptrCast(hi_score_data));
+            const result = p.*;
+            return result;
+        }
+    } else |err| {
+        log.debug(
+            "{s} was not loaded because of [{!}], but it was probably OK.",
+            .{ HiScoreFile, err },
+        );
+    }
+
+    return 0;
+}
+
+fn saveHiScore() !void {
+    var d = try std.fs.cwd().openDir(".", .{});
+    defer d.close();
+
+    var f = try d.createFile(HiScoreFile, .{ .truncate = true });
+    defer f.close();
+    var r = f.writer();
+
+    try r.writeInt(u32, hi_score, .little);
+}

@@ -13,3 +13,5 @@ zig-out/
 .vscode/
 
 assets-to-embed/
+
+hiscore.dat
