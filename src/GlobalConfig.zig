@@ -39,6 +39,7 @@ damage_animation_speed: f32 = 10,
 decor_magic: u16 = 2000,
 shoot_energy_cost: f32 = 0.5,
 battery_energy_amount: f32 = 40,
+audio_master_volume: f32 = 0.05,
 
 pub fn load(directory: []const u8, file_name: []const u8, allocator: std.mem.Allocator) ?GlobalConfig {
     const config_json_content = util.readEntireFileAlloc(directory, file_name, allocator) catch |err| {

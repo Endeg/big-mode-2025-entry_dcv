@@ -866,7 +866,7 @@ pub fn main() !void {
     var frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());
     const frame_allocator = frame_arena.allocator();
 
-    c.SetMasterVolume(0.05);
+    c.SetMasterVolume(config.audio_master_volume);
 
     var camera_position = c.Vector2{};
 
