@@ -114,7 +114,7 @@ pub const GigaEntity = struct {
         };
     }
 
-    pub fn supostat(position: c.Vector2, rng: std.Random) Self {
+    pub fn supostat(position: c.Vector2, rng: std.Random, health: i8) Self {
         const GreenHueStart: f32 = 90 + 30;
         const GreenHueEnd: f32 = 150 - 30;
         const AllHue: f32 = 360;
@@ -132,6 +132,7 @@ pub const GigaEntity = struct {
                 .collideable = true,
             },
             .position = position,
+            .health = health,
             .tint = shifted_tint,
             .layer = .MoreSprites,
         };
@@ -150,7 +151,7 @@ pub const EntityManager = struct {
 
     const EntitySOA = std.MultiArrayList(GigaEntity);
 
-    const Handle = enum(u16) { _ };
+    pub const Handle = enum(u16) { _ };
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         var entities = EntitySOA{};

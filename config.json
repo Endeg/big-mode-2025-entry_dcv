@@ -22,7 +22,7 @@
     "iframes": 0.8,
     "enemy_acc_magnitude": 160,
     "enemy_max_velocity": 110,
-    "enemy_max_velocity_backup": 120,
+    "enemy_max_velocity_backup": 110,
     "enemy_hop_distance": 25,
     "enemy_hop_amp": 7,
     "decor_magic": 8000

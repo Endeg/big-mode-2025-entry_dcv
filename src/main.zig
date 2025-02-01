@@ -56,6 +56,14 @@ fn drawSprite(
 const GameManager = struct {
     state: State = .Playing,
     respawn_time: f32 = 0,
+    enemies_count: usize = 0,
+    target_enemies_count: usize = 50,
+    base_enemy_health: i8 = 3,
+    score: usize = 0,
+
+    //TODO: Spawn batteries
+    //TODO: Life count and game-over
+    //TODO: High-score on game-over screen
 
     const Self = @This();
 
@@ -70,12 +78,57 @@ const GameManager = struct {
         self.state = .RespawnScreen;
     }
 
-    pub fn update(self: *Self, input: Input) void {
+    pub fn update(
+        self: *Self,
+        input: Input,
+        player_handle: EntityManager.Handle,
+        em: *EntityManager,
+    ) void {
         if (self.state == .RespawnScreen) {
             self.respawn_time = @max(self.respawn_time - input.dt, 0);
             if (self.respawn_time <= 0) {
                 self.state = .ReadyToRespawn;
             }
+        } else if (self.state == .Playing) {
+            if (self.score > 100) {
+                self.target_enemies_count = 150;
+            } else if (self.score > 200) {
+                self.target_enemies_count = 300;
+            } else if (self.score > 400) {
+                self.target_enemies_count = 600;
+            }
+
+            if (self.enemies_count < self.target_enemies_count) {
+                self.spawnSupostat(player_handle, em, game_rng);
+            }
+        }
+    }
+
+    pub fn spawnSupostat(
+        self: *Self,
+        player_handle: EntityManager.Handle,
+        entity_manager: *EntityManager,
+        rng: std.Random,
+    ) void {
+        if (entity_manager.entityField(player_handle, .position)) |player_position| {
+            const DistanceMin: f32 = 300;
+            const DistanceMax: f32 = DistanceMin + 120;
+
+            const radius = (rng.float(f32) * (DistanceMax - DistanceMin) + DistanceMin);
+            const angle = std.math.degreesToRadians(rng.float(f32) * 360);
+
+            const final_position = c.Vector2Add(player_position.*, c.Vector2Scale(c.Vector2Rotate(.{ .y = -1 }, angle), radius));
+
+            self.enemies_count += 1;
+            //TODO: Scale enemy health
+            _ = entity_manager.createEntity(GigaEntity.supostat(final_position, game_rng, 2));
+        }
+    }
+
+    pub fn supostatFell(self: *Self) void {
+        self.score += 1;
+        if (self.enemies_count > 0) {
+            self.enemies_count -= 1;
         }
     }
 };
@@ -143,7 +196,6 @@ pub fn determineDirection(up: bool, down: bool, left: bool, right: bool) c.Vecto
 }
 
 fn update(
-    game_manager: *GameManager,
     em: *EntityManager,
     input: Input,
     config: GlobalConfig,
@@ -421,6 +473,7 @@ fn update(
                         if (health[j] <= 0) {
                             flags[j].alive = false;
                             audio_manager.playOneOf(rng, &.{ .EnemyFell0, .EnemyFell1, .EnemyFell2 });
+                            game_manager.supostatFell();
                             //TODO: Death animation
                         }
                     }
@@ -463,25 +516,25 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
     c.DrawRectangle(-ArenaWidth / 2, ArenaHeight / 2, ArenaWidth + 1, 1, c.GRAY);
 
     {
-        var prng = std.Random.DefaultPrng.init(0x69);
-        var rng = prng.random();
+        var frame_prng = std.Random.DefaultPrng.init(0x69);
+        var frame_rng = frame_prng.random();
 
         var x: f32 = -ArenaWidth / 2;
         while (x < ArenaWidth / 2) : (x += 16) {
             var y: f32 = -ArenaWidth / 2;
             while (y < ArenaWidth / 2) : (y += 16) {
-                if (rng.int(u16) < config.decor_magic) {
+                if (frame_rng.int(u16) < config.decor_magic) {
                     const DecorSprites = [_]SpriteHandle{ .Decor0, .Decor1 };
-                    const decor_index = rng.uintLessThan(usize, DecorSprites.len);
+                    const decor_index = frame_rng.uintLessThan(usize, DecorSprites.len);
 
                     var hsv = c.ColorToHSV(c.GREEN);
-                    hsv.y = rng.float(f32) * 0.5 + 0.25;
-                    hsv.z = rng.float(f32) * 0.5 + 0.25;
+                    hsv.y = frame_rng.float(f32) * 0.5 + 0.25;
+                    hsv.z = frame_rng.float(f32) * 0.5 + 0.25;
                     const final_color = c.ColorFromHSV(hsv.x, hsv.y, hsv.z);
 
                     drawSprite(
                         sm.get(DecorSprites[decor_index]),
-                        .{ .x = x + rng.floatExp(f32) * 8 - 4, .y = y + rng.floatExp(f32) * 8 - 4 },
+                        .{ .x = x + frame_rng.floatExp(f32) * 8 - 4, .y = y + frame_rng.floatExp(f32) * 8 - 4 },
                         0,
                         final_color,
                     );
@@ -659,6 +712,16 @@ fn drawBatteryIcon(zoomed_screen_width: f32, energy: f32) void {
 
 const Release = @import("builtin").mode == .ReleaseFast;
 
+var game_prng: std.Random.DefaultPrng = undefined;
+var game_rng: std.Random = undefined;
+
+fn reset() void {
+    game_prng = std.Random.DefaultPrng.init(@bitCast(std.time.milliTimestamp()));
+    game_rng = game_prng.random();
+}
+
+var game_manager = GameManager{};
+
 pub fn main() !void {
     if (Release) {
         c.SetTraceLogLevel(c.LOG_ERROR);
@@ -696,24 +759,24 @@ pub fn main() !void {
     var player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
     audio_manager.play(.Respawn);
 
-    var prng = std.Random.DefaultPrng.init(0x6969);
-    var rng = prng.random();
-    if (true) {
+    reset();
+
+    if (false) {
         var entities_to_spawn: i32 = 100;
         while (entities_to_spawn >= 0) : (entities_to_spawn -= 1) {
             const Distribution = 200;
-            if (rng.boolean() and rng.boolean()) {
+            if (game_rng.boolean() and game_rng.boolean()) {
                 _ = entity_manager.createEntity(GigaEntity.battery(
                     .{
-                        .x = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
-                        .y = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                        .x = game_rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                        .y = game_rng.floatNorm(f32) * Distribution - Distribution * 0.5,
                     },
                 ));
             } else {
                 _ = entity_manager.createEntity(GigaEntity.supostat(.{
-                    .x = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
-                    .y = rng.floatNorm(f32) * Distribution - Distribution * 0.5,
-                }, rng));
+                    .x = game_rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                    .y = game_rng.floatNorm(f32) * Distribution - Distribution * 0.5,
+                }, game_rng));
             }
         }
     }
@@ -726,8 +789,6 @@ pub fn main() !void {
     var frame_fba = std.heap.FixedBufferAllocator.init(frame_memory);
     var frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());
     const frame_allocator = frame_arena.allocator();
-
-    var game_manager = GameManager{};
 
     c.SetMasterVolume(0.05);
 
@@ -786,16 +847,15 @@ pub fn main() !void {
 
         c.ClearBackground(c.BLACK);
 
-        game_manager.update(input);
+        game_manager.update(input, player_handle, &entity_manager);
 
         try update(
-            &game_manager,
             &entity_manager,
             input,
             config,
             &frame_messages,
             frame_allocator,
-            rng,
+            game_rng,
             player_position_for_pursuit,
             audio_manager,
         );
@@ -849,14 +909,12 @@ pub fn main() !void {
 
         c.BeginMode2D(gui_camera);
 
-        //TODO: Finish placing UI elements.
         const zoomed_screen_width = screen_width / Zoom;
         const zoomed_screen_height = screen_height / Zoom;
         if (game_manager.state == .RespawnScreen) {
             const font_size = 20;
             const padding = 8;
             const full_text_height = font_size * 2 + 8;
-            //const vertical_offset = font_size + padding;
 
             //TODO: Animate this screen
 
@@ -901,11 +959,31 @@ pub fn main() !void {
             if (entity_manager.entityField(player_handle, .energy)) |player_energy| {
                 drawBatteryIcon(zoomed_screen_width, player_energy.*);
             }
+
+            {
+                const score_font_size = 16;
+                const padding = 4;
+                const text = try std.fmt.allocPrintZ(
+                    frame_allocator,
+                    "{d}",
+                    .{game_manager.score},
+                );
+                const width: f32 = @floatFromInt(c.MeasureText(text, score_font_size));
+                c.DrawText(
+                    text.ptr,
+                    @intFromFloat((zoomed_screen_width - width) * 0.5),
+                    @intFromFloat(padding),
+                    score_font_size,
+                    c.RAYWHITE,
+                );
+            }
         }
 
         c.EndMode2D();
 
-        c.DrawFPS(2, 2);
+        if (!Release) {
+            c.DrawFPS(2, 2);
+        }
 
         if (DebugMode) {
             for (frame_messages.items, 0..) |frame_message, i| {
