@@ -64,7 +64,7 @@ const GameManager = struct {
     max_batteries_count: usize = 50,
     battery_spawn_time: f32 = BatterySpawnTimeout,
     game_prng: std.Random.DefaultPrng = undefined,
-    guys_count: usize = 1, // 5,
+    guys_count: usize = 5,
     rng: std.Random = undefined,
     player_handle: EntityManager.Handle = undefined,
 
@@ -833,8 +833,6 @@ pub fn main() !void {
     var entity_manager = try EntityManager.init(gpa.allocator());
     defer entity_manager.deinit();
 
-    game_manager.reset(&entity_manager, audio_manager);
-
     if (false) {
         var entities_to_spawn: i32 = 100;
         while (entities_to_spawn >= 0) : (entities_to_spawn -= 1) {
@@ -873,6 +871,10 @@ pub fn main() !void {
         _ = frame_arena.reset(.retain_capacity);
 
         if (game_manager.state == .GameOver) {
+            if (c.GetKeyPressed() > 0) {
+                game_manager.reset(&entity_manager, audio_manager);
+            }
+        } else if (game_manager.state == .StartScreen) {
             if (c.GetKeyPressed() > 0) {
                 game_manager.reset(&entity_manager, audio_manager);
             }
@@ -1068,31 +1070,22 @@ pub fn main() !void {
                 }
             },
             .GameOver => {
-                const game_over_font_size = 60;
-                const padding = 4;
-                {
-                    const text: [*c]const u8 = "Discharged.";
-                    const width: f32 = @floatFromInt(c.MeasureText(text, game_over_font_size));
-                    c.DrawText(
-                        text,
-                        @intFromFloat((zoomed_screen_width - width) * 0.5),
-                        @intFromFloat((zoomed_screen_height - game_over_font_size) * 0.5),
-                        game_over_font_size,
-                        c.RAYWHITE,
-                    );
-                }
-                if (@mod(@trunc(c.GetTime() / 0.6), 2) > 0) {
-                    const font_size = 20;
-                    const text: [*c]const u8 = "Press any key to try again!";
-                    const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
-                    c.DrawText(
-                        text,
-                        @intFromFloat((zoomed_screen_width - width) * 0.5),
-                        @intFromFloat((zoomed_screen_height - font_size) * 0.5 + game_over_font_size + padding),
-                        font_size,
-                        c.RAYWHITE,
-                    );
-                }
+                generalScreenWithBlinkingPrompt(
+                    zoomed_screen_width,
+                    zoomed_screen_height,
+                    "Discharged.",
+                    "Press any key to try again!",
+                    60,
+                );
+            },
+            .StartScreen => {
+                generalScreenWithBlinkingPrompt(
+                    zoomed_screen_width,
+                    zoomed_screen_height,
+                    "The Discharge of Captain Volt",
+                    "Press any key to try again!",
+                    27,
+                );
             },
             else => {},
         }
@@ -1113,6 +1106,38 @@ pub fn main() !void {
         if (game_manager.state == .ReadyToRespawn) {
             game_manager.respawnPlayer(&entity_manager, audio_manager);
         }
+    }
+}
+
+fn generalScreenWithBlinkingPrompt(
+    zoomed_screen_width: f32,
+    zoomed_screen_height: f32,
+    top_text: [*c]const u8,
+    blinking_text: [*c]const u8,
+    top_font_size: c_int,
+) void {
+    const padding = 4;
+    const top_font_size_f: f32 = @floatFromInt(top_font_size);
+    {
+        const width: f32 = @floatFromInt(c.MeasureText(top_text, top_font_size));
+        c.DrawText(
+            top_text,
+            @intFromFloat((zoomed_screen_width - width) * 0.5),
+            @intFromFloat((zoomed_screen_height - top_font_size_f) * 0.5),
+            top_font_size,
+            c.RAYWHITE,
+        );
+    }
+    if (@mod(@trunc(c.GetTime() / 0.6), 2) > 0) {
+        const font_size = 20;
+        const width: f32 = @floatFromInt(c.MeasureText(blinking_text, font_size));
+        c.DrawText(
+            blinking_text,
+            @intFromFloat((zoomed_screen_width - width) * 0.5),
+            @intFromFloat((zoomed_screen_height - top_font_size_f) * 0.5 + top_font_size_f + padding),
+            font_size,
+            c.RAYWHITE,
+        );
     }
 }
 
