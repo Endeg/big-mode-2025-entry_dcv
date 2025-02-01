@@ -5697,13 +5697,13 @@ pub const PI = @as(f32, 3.14159265358979323846);
 pub const DEG2RAD = @import("std").zig.c_translation.MacroArithmetic.div(PI, @as(f32, 180.0));
 pub const RAD2DEG = @import("std").zig.c_translation.MacroArithmetic.div(@as(f32, 180.0), PI);
 pub const RL_MALLOC = @compileError("unable to translate macro: undefined identifier `malloc`");
-// libs\raylib\include/raylib.h:133:13
+// libs\raylib/raylib.h:133:13
 pub const RL_CALLOC = @compileError("unable to translate macro: undefined identifier `calloc`");
-// libs\raylib\include/raylib.h:136:13
+// libs\raylib/raylib.h:136:13
 pub const RL_REALLOC = @compileError("unable to translate macro: undefined identifier `realloc`");
-// libs\raylib\include/raylib.h:139:13
+// libs\raylib/raylib.h:139:13
 pub const RL_FREE = @compileError("unable to translate macro: undefined identifier `free`");
-// libs\raylib\include/raylib.h:142:13
+// libs\raylib/raylib.h:142:13
 pub inline fn CLITERAL(@"type": anytype) @TypeOf(@"type") {
     _ = &@"type";
     return @"type";
@@ -5756,7 +5756,7 @@ pub const SHADER_LOC_MAP_SPECULAR = SHADER_LOC_MAP_METALNESS;
 pub const GetMouseRay = GetScreenToWorldRay;
 pub const RAYMATH_H = "";
 pub const RMAPI = @compileError("unable to translate C expr: unexpected token 'inline'");
-// libs\raylib\include/raymath.h:78:17
+// libs\raylib/raymath.h:78:17
 pub const EPSILON = @as(f32, 0.000001);
 pub inline fn MatrixToFloat(mat: anytype) @TypeOf(MatrixToFloatV(mat).v) {
     _ = &mat;
@@ -6228,9 +6228,9 @@ pub const CAMERA_CULL_DISTANCE_FAR = RL_CULL_DISTANCE_FAR;
 pub const RLGL_H = "";
 pub const RLGL_VERSION = "5.0";
 pub const TRACELOG = @compileError("unable to translate C expr: expected ')' instead got '...'");
-// libs\raylib\include/rlgl.h:133:13
+// libs\raylib/rlgl.h:133:13
 pub const TRACELOGD = @compileError("unable to translate C expr: expected ')' instead got '...'");
-// libs\raylib\include/rlgl.h:134:13
+// libs\raylib/rlgl.h:134:13
 pub const GRAPHICS_API_OPENGL_33 = "";
 pub const RLGL_RENDER_TEXTURES_HINT = "";
 pub const RL_DEFAULT_BATCH_BUFFER_ELEMENTS = @as(c_int, 8192);

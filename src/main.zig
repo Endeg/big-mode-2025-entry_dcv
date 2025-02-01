@@ -657,8 +657,10 @@ fn drawBatteryIcon(zoomed_screen_width: f32, energy: f32) void {
     );
 }
 
+const Release = @import("builtin").mode == .ReleaseFast;
+
 pub fn main() !void {
-    if (@import("builtin").mode == .ReleaseFast) {
+    if (Release) {
         c.SetTraceLogLevel(c.LOG_ERROR);
     }
 
@@ -747,13 +749,15 @@ pub fn main() !void {
             .shoot_right = c.IsKeyDown(c.KEY_L) or c.IsKeyDown(c.KEY_RIGHT),
         };
 
-        if (config_watcher.wasModified(input.dt)) {
-            log.debug("Config was changed, reloading...", .{});
-            if (GlobalConfig.load(".", "config.json", frame_allocator)) |loaded_config| {
-                //TODO: Print updated values
-                config = loaded_config;
-            } else {
-                log.err("Config was not updated!", .{});
+        if (!Release) {
+            if (config_watcher.wasModified(input.dt)) {
+                log.debug("Config was changed, reloading...", .{});
+                if (GlobalConfig.load(".", "config.json", frame_allocator)) |loaded_config| {
+                    //TODO: Print updated values
+                    config = loaded_config;
+                } else {
+                    log.err("Config was not updated!", .{});
+                }
             }
         }
 
