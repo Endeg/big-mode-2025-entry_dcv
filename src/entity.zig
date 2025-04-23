@@ -2,15 +2,15 @@ const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
-const c = @import("c.zig");
+const rl = @import("raylib.zig");
 
 pub const GigaEntity = struct {
     handle: EntityManager.Handle = undefined,
     flags: Flags = undefined,
 
-    position: c.Vector2 = .{},
-    acceleration: c.Vector2 = .{},
-    velocity: c.Vector2 = .{},
+    position: rl.Vector2 = .{},
+    acceleration: rl.Vector2 = .{},
+    velocity: rl.Vector2 = .{},
     health: i8 = 5,
     iframes: f32 = 0,
     energy: f32 = MaxEnergy,
@@ -19,7 +19,7 @@ pub const GigaEntity = struct {
     ttl: f32 = 0,
     enemy_behavior: EnemyBehavior = .{},
 
-    tint: c.Color = undefined,
+    tint: rl.Color = undefined,
     damage_animation: f32 = 0,
     layer: Layer = .Sprites,
 
@@ -44,7 +44,7 @@ pub const GigaEntity = struct {
 
     const EnemyBehavior = struct {
         time_to_next: f32 = 0.0,
-        commit_to_direction: c.Vector2 = .{},
+        commit_to_direction: rl.Vector2 = .{},
         mode: Mode = .Loiter,
 
         const Mode = enum {
@@ -55,7 +55,7 @@ pub const GigaEntity = struct {
     };
 
     const ShootInfo = struct {
-        direction: c.Vector2 = .{},
+        direction: rl.Vector2 = .{},
         cooldown: f32 = 0,
     };
 
@@ -70,7 +70,7 @@ pub const GigaEntity = struct {
 
     const Self = @This();
 
-    pub fn player(position: c.Vector2) Self {
+    pub fn player(position: rl.Vector2) Self {
         return .{
             .flags = .{
                 .class = .Player,
@@ -79,12 +79,12 @@ pub const GigaEntity = struct {
                 .collideable = true,
             },
             .position = position,
-            .tint = c.GREEN,
+            .tint = rl.GREEN,
             .layer = .MoreSprites,
         };
     }
 
-    pub fn battery(position: c.Vector2) Self {
+    pub fn battery(position: rl.Vector2) Self {
         return .{
             .flags = .{
                 .class = .Battery,
@@ -93,11 +93,11 @@ pub const GigaEntity = struct {
                 .collideable = true,
             },
             .position = position,
-            .tint = c.VIOLET,
+            .tint = rl.VIOLET,
         };
     }
 
-    pub fn projectile(position: c.Vector2, acceleration: c.Vector2, ttl: f32) Self {
+    pub fn projectile(position: rl.Vector2, acceleration: rl.Vector2, ttl: f32) Self {
         return .{
             .flags = .{
                 .class = .Projectile,
@@ -109,20 +109,20 @@ pub const GigaEntity = struct {
             .acceleration = acceleration,
             .velocity = acceleration,
             .ttl = ttl,
-            .tint = c.YELLOW,
+            .tint = rl.YELLOW,
             .layer = .MoreSprites,
         };
     }
 
-    pub fn supostat(position: c.Vector2, rng: std.Random, health: i8) Self {
+    pub fn supostat(position: rl.Vector2, rng: std.Random, health: i8) Self {
         const GreenHueStart: f32 = 90 + 30;
         const GreenHueEnd: f32 = 150 - 30;
         const AllHue: f32 = 360;
 
-        var hsv = c.ColorToHSV(c.MAROON);
+        var hsv = rl.ColorToHSV(rl.MAROON);
         hsv.x = if (rng.boolean()) rng.float(f32) * GreenHueStart else GreenHueEnd + (rng.float(f32) * (AllHue - GreenHueEnd));
 
-        const shifted_tint = c.ColorFromHSV(hsv.x, hsv.y, hsv.z);
+        const shifted_tint = rl.ColorFromHSV(hsv.x, hsv.y, hsv.z);
 
         return .{
             .flags = .{

@@ -4,34 +4,34 @@ const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
-const c = @import("c.zig");
+const rl = @import("raylib.zig");
 
 const Error = error{
     malformed_sprites_json,
 };
 
-textures: std.EnumArray(TextureAsset, c.Texture2D),
+textures: std.EnumArray(TextureAsset, rl.Texture2D),
 sprites: std.EnumArray(SpriteHandle, Sprite),
 
 pub const Sprite = struct {
-    texture: c.Texture2D,
-    source: c.Rectangle,
-    size: c.Vector2,
-    origin: c.Vector2,
+    texture: rl.Texture2D,
+    source: rl.Rectangle,
+    size: rl.Vector2,
+    origin: rl.Vector2,
 };
 
 pub fn init() SpriteManager {
-    var textures = std.EnumArray(TextureAsset, c.Texture2D).initUndefined();
+    var textures = std.EnumArray(TextureAsset, rl.Texture2D).initUndefined();
     inline for (@typeInfo(TextureAsset).@"enum".fields) |texture_asset_field| {
         const texture_asset: TextureAsset = @enumFromInt(texture_asset_field.value);
 
         const file_data = TextureAssets.get(texture_asset);
 
-        const image = c.LoadImageFromMemory(".png", file_data.ptr, @intCast(file_data.len));
-        defer c.UnloadImage(image);
+        const image = rl.LoadImageFromMemory(".png", file_data.ptr, @intCast(file_data.len));
+        defer rl.UnloadImage(image);
         log.debug("image = {any}.", .{image});
 
-        const texture = c.LoadTextureFromImage(image);
+        const texture = rl.LoadTextureFromImage(image);
         log.debug("texture = {any}.", .{texture});
         textures.set(texture_asset, texture);
     }
@@ -166,7 +166,7 @@ const SpriteInfos = std.EnumArray(SpriteHandle, SpriteInfo).init(.{
 
 const SpriteInfo = struct {
     texture: TextureAsset,
-    source: ?c.Rectangle = null,
-    size: ?c.Vector2 = null,
-    origin: c.Vector2,
+    source: ?rl.Rectangle = null,
+    size: ?rl.Vector2 = null,
+    origin: rl.Vector2,
 };

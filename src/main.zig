@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
-const c = @import("c.zig");
+const rl = @import("raylib.zig");
 
 const util = @import("util.zig");
 
@@ -38,11 +38,11 @@ const GPA = std.heap.GeneralPurposeAllocator(.{});
 
 fn drawSprite(
     sprite: *const Sprite,
-    position: c.Vector2,
+    position: rl.Vector2,
     rotation: f32,
-    tint: c.Color,
+    tint: rl.Color,
 ) void {
-    c.DrawTexturePro(
+    rl.DrawTexturePro(
         sprite.texture,
         sprite.source,
         .{ .x = position.x, .y = position.y, .width = sprite.size.x, .height = sprite.size.y },
@@ -164,7 +164,7 @@ const GameManager = struct {
             const radius = (self.rng.float(f32) * (DistanceMax - DistanceMin) + DistanceMin);
             const angle = std.math.degreesToRadians(self.rng.float(f32) * 360);
 
-            const final_position = c.Vector2Add(player_position.*, c.Vector2Scale(c.Vector2Rotate(.{ .y = -1 }, angle), radius));
+            const final_position = rl.Vector2Add(player_position.*, rl.Vector2Scale(rl.Vector2Rotate(.{ .y = -1 }, angle), radius));
 
             self.enemies_count += 1;
             //TODO: Scale enemy health
@@ -202,8 +202,8 @@ const GameManager = struct {
                 const radius = (self.rng.float(f32) * (DistanceMax - DistanceMin) + DistanceMin);
                 const angle = std.math.degreesToRadians(self.rng.float(f32) * 360);
 
-                var final_position = c.Vector2Add(player_position.*, c.Vector2Scale(c.Vector2Rotate(.{ .y = -1 }, angle), radius));
-                final_position = c.Vector2Clamp(
+                var final_position = rl.Vector2Add(player_position.*, rl.Vector2Scale(rl.Vector2Rotate(.{ .y = -1 }, angle), radius));
+                final_position = rl.Vector2Clamp(
                     final_position,
                     .{ .x = -ArenaWidth * 0.8 * 0.5, .y = -ArenaHeight * 0.8 * 0.5 },
                     .{ .x = ArenaWidth * 0.8 * 0.5, .y = ArenaHeight * 0.8 * 0.5 },
@@ -242,47 +242,47 @@ const EntityPhysicsConfig = struct {
 };
 
 fn integratePhysics(
-    position: *c.Vector2,
-    acceleration: *c.Vector2,
-    velocity: *c.Vector2,
+    position: *rl.Vector2,
+    acceleration: *rl.Vector2,
+    velocity: *rl.Vector2,
     input: Input,
     config: EntityPhysicsConfig,
 ) !void {
-    if (c.Vector2Length(velocity.*) > 0 and c.Vector2Length(acceleration.*) > 0) {
+    if (rl.Vector2Length(velocity.*) > 0 and rl.Vector2Length(acceleration.*) > 0) {
         // Decrease velocity if direction was changed
-        const vel_norm = c.Vector2Normalize(velocity.*);
-        const acc_norm = c.Vector2Normalize(acceleration.*);
-        const dot_product = c.Vector2DotProduct(vel_norm, acc_norm);
+        const vel_norm = rl.Vector2Normalize(velocity.*);
+        const acc_norm = rl.Vector2Normalize(acceleration.*);
+        const dot_product = rl.Vector2DotProduct(vel_norm, acc_norm);
         if (dot_product < 0) {
-            velocity.* = c.Vector2Subtract(velocity.*, c.Vector2Scale(velocity.*, (1 - config.damping) * @abs(dot_product) * input.dt / config.mass));
+            velocity.* = rl.Vector2Subtract(velocity.*, rl.Vector2Scale(velocity.*, (1 - config.damping) * @abs(dot_product) * input.dt / config.mass));
         }
     }
     if (BuggyPhysicsIntegration) {
-        const vt = c.Vector2Scale(velocity.*, input.dt);
-        const at = c.Vector2Scale(acceleration.*, input.dt * input.dt * 0.5);
-        velocity.* = c.Vector2Add(velocity.*, c.Vector2Add(vt, at));
+        const vt = rl.Vector2Scale(velocity.*, input.dt);
+        const at = rl.Vector2Scale(acceleration.*, input.dt * input.dt * 0.5);
+        velocity.* = rl.Vector2Add(velocity.*, rl.Vector2Add(vt, at));
     } else {
-        velocity.* = c.Vector2Add(velocity.*, c.Vector2Scale(acceleration.*, input.dt));
+        velocity.* = rl.Vector2Add(velocity.*, rl.Vector2Scale(acceleration.*, input.dt));
     }
 
-    if (c.Vector2Length(acceleration.*) == 0) {
-        velocity.* = c.Vector2Scale(velocity.*, config.damping);
+    if (rl.Vector2Length(acceleration.*) == 0) {
+        velocity.* = rl.Vector2Scale(velocity.*, config.damping);
     }
 
-    velocity.* = c.Vector2ClampValue(velocity.*, 0, config.max_velocity);
+    velocity.* = rl.Vector2ClampValue(velocity.*, 0, config.max_velocity);
 
-    position.* = c.Vector2Add(position.*, c.Vector2Scale(velocity.*, input.dt));
+    position.* = rl.Vector2Add(position.*, rl.Vector2Scale(velocity.*, input.dt));
 }
 
 const BuggyPhysicsIntegration = false;
 
-pub fn determineDirection(up: bool, down: bool, left: bool, right: bool) c.Vector2 {
-    var result = c.Vector2{};
+pub fn determineDirection(up: bool, down: bool, left: bool, right: bool) rl.Vector2 {
+    var result = rl.Vector2{};
     if (left) result.x = -1;
     if (right) result.x = 1;
     if (up) result.y = -1;
     if (down) result.y = 1;
-    return c.Vector2Normalize(result);
+    return rl.Vector2Normalize(result);
 }
 
 fn update(
@@ -291,7 +291,7 @@ fn update(
     config: GlobalConfig,
     frame_messages: *std.ArrayList([]const u8),
     frame_allocator: std.mem.Allocator,
-    player_position: ?c.Vector2,
+    player_position: ?rl.Vector2,
     audio_manager: AudioManager,
 ) !void {
     var i: usize = 0;
@@ -316,7 +316,7 @@ fn update(
         if (flags[i].class == .Player) {
             acceleration[i] = determineDirection(input.up, input.down, input.left, input.right);
 
-            acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.player_acc_magnitude);
+            acceleration[i] = rl.Vector2Scale(rl.Vector2Normalize(acceleration[i]), config.player_acc_magnitude);
             frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
                 frame_allocator,
                 "player.acceleration = {d:.4}, {d:.4}.",
@@ -334,9 +334,9 @@ fn update(
             }
         } else if (flags[i].class == .Supostat) {
             enemy_behavior[i].mode = .Loiter;
-            var player_position_for_pursuit: c.Vector2 = .{};
+            var player_position_for_pursuit: rl.Vector2 = .{};
             if (player_position) |provided_player_position| {
-                if (c.Vector2Distance(provided_player_position, position[i]) <= config.enemy_aggression_distance) {
+                if (rl.Vector2Distance(provided_player_position, position[i]) <= config.enemy_aggression_distance) {
                     enemy_behavior[i].mode = .Pursuit;
                     player_position_for_pursuit = provided_player_position;
                 }
@@ -355,7 +355,7 @@ fn update(
                 .Pursuit => {
                     enemy_behavior[i].commit_to_direction = .{};
 
-                    const actual_target_position = c.Vector2{
+                    const actual_target_position = rl.Vector2{
                         .x = player_position_for_pursuit.x + (game_manager.rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
                         .y = player_position_for_pursuit.y + (game_manager.rng.floatExp(f32) * config.enemy_pursuit_dispersal) - config.enemy_pursuit_dispersal * 0.5,
                     };
@@ -386,9 +386,9 @@ fn update(
                 },
             }
 
-            enemy_behavior[i].commit_to_direction = c.Vector2Normalize(enemy_behavior[i].commit_to_direction);
+            enemy_behavior[i].commit_to_direction = rl.Vector2Normalize(enemy_behavior[i].commit_to_direction);
             acceleration[i] = enemy_behavior[i].commit_to_direction;
-            acceleration[i] = c.Vector2Scale(c.Vector2Normalize(acceleration[i]), config.enemy_acc_magnitude);
+            acceleration[i] = rl.Vector2Scale(rl.Vector2Normalize(acceleration[i]), config.enemy_acc_magnitude);
         }
 
         if (flags[i].moving) {
@@ -421,13 +421,13 @@ fn update(
             const hop_max_angle: f32 = std.math.degreesToRadians(180);
 
             if (flags[i].class == .Player or flags[i].class == .Supostat) {
-                position[i] = c.Vector2Clamp(
+                position[i] = rl.Vector2Clamp(
                     position[i],
                     .{ .x = -ArenaWidth * 0.5, .y = -ArenaHeight * 0.5 },
                     .{ .x = ArenaWidth * 0.5, .y = ArenaHeight * 0.5 },
                 );
 
-                const frame_distance = c.Vector2Distance(initial_position, position[i]);
+                const frame_distance = rl.Vector2Distance(initial_position, position[i]);
 
                 const hop_distance: f32 = if (flags[i].class == .Player) config.player_hop_distance else config.enemy_hop_distance;
                 const hop_amp: f32 = if (flags[i].class == .Player) config.player_hop_amp else config.enemy_hop_amp;
@@ -461,17 +461,17 @@ fn update(
                     input.shoot_right,
                 );
 
-                const shoot_start_position = c.Vector2Add(
-                    c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
-                    c.Vector2Add(
+                const shoot_start_position = rl.Vector2Add(
+                    rl.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
+                    rl.Vector2Add(
                         position[i],
-                        c.Vector2Scale(shoot_direction, config.player_shoot_start_distance),
+                        rl.Vector2Scale(shoot_direction, config.player_shoot_start_distance),
                     ),
                 );
 
                 _ = em.createEntity(GigaEntity.projectile(
                     shoot_start_position,
-                    c.Vector2Scale(shoot_direction, config.player_projectile_acceleration_magnitude),
+                    rl.Vector2Scale(shoot_direction, config.player_projectile_acceleration_magnitude),
                     config.player_projectile_ttl,
                 ));
                 audio_manager.play(.Pew);
@@ -530,13 +530,13 @@ fn update(
         while (j < em.entities.len) : (j += 1) {
             if (i != j and flags[i].alive and flags[i].collideable) {
                 if (flags[i].class == .Player and flags[j].class == .Battery and flags[j].alive) {
-                    const real_position_p = c.Vector2Add(c.Vector2Add(position[i], .{ .y = -above_ground_value[i] }), .{ .y = -config.general_center_from_bottom });
-                    const real_position_b = c.Vector2Add(position[j], .{ .y = -config.general_center_from_bottom });
+                    const real_position_p = rl.Vector2Add(rl.Vector2Add(position[i], .{ .y = -above_ground_value[i] }), .{ .y = -config.general_center_from_bottom });
+                    const real_position_b = rl.Vector2Add(position[j], .{ .y = -config.general_center_from_bottom });
                     if (DebugMode) {
-                        c.DrawCircleV(real_position_p, config.general_radius, c.GOLD);
-                        c.DrawCircleV(real_position_b, config.general_radius, c.YELLOW);
+                        rl.DrawCircleV(real_position_p, config.general_radius, rl.GOLD);
+                        rl.DrawCircleV(real_position_b, config.general_radius, rl.YELLOW);
                     }
-                    if (c.Vector2Distance(real_position_p, real_position_b) <= config.general_radius * 2) {
+                    if (rl.Vector2Distance(real_position_p, real_position_b) <= config.general_radius * 2) {
                         game_manager.batteryPickedUp(audio_manager);
 
                         energy[i] = std.math.clamp(energy[i] + config.battery_energy_amount, 0, GigaEntity.MaxEnergy);
@@ -545,18 +545,18 @@ fn update(
                     }
                 }
                 if (flags[i].class == .Projectile and flags[j].class == .Supostat) {
-                    const real_position_b = c.Vector2Add(c.Vector2Add(position[j], .{ .y = -above_ground_value[j] }), .{ .y = -config.general_center_from_bottom });
+                    const real_position_b = rl.Vector2Add(rl.Vector2Add(position[j], .{ .y = -above_ground_value[j] }), .{ .y = -config.general_center_from_bottom });
                     if (DebugMode) {
-                        c.DrawCircleV(real_position_b, config.general_radius, c.GOLD);
-                        c.DrawCircleV(position[i], config.projectile_radius, c.YELLOW);
+                        rl.DrawCircleV(real_position_b, config.general_radius, rl.GOLD);
+                        rl.DrawCircleV(position[i], config.projectile_radius, rl.YELLOW);
                     }
-                    if (c.Vector2Distance(position[i], real_position_b) <= config.general_radius + config.projectile_radius) {
+                    if (rl.Vector2Distance(position[i], real_position_b) <= config.general_radius + config.projectile_radius) {
                         audio_manager.playOneOf(game_manager.rng, &.{ .Damage0, .Damage1, .Damage2, .Damage3, .Damage4 });
                         health[j] -= 1;
                         flags[i].alive = false;
                         damage_animation[j] = 1;
 
-                        velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor));
+                        velocity[j] = rl.Vector2Add(velocity[j], rl.Vector2Scale(velocity[i], config.damage_inertia_factor));
 
                         //TODO: Some particles
 
@@ -568,12 +568,12 @@ fn update(
                         }
                     }
                 } else if (flags[i].class == .Supostat and flags[j].class == .Player) {
-                    const real_position_s = c.Vector2Add(c.Vector2Add(position[i], .{ .y = -above_ground_value[i] }), .{ .y = -config.general_center_from_bottom });
-                    const real_position_p = c.Vector2Add(c.Vector2Add(position[j], .{ .y = -above_ground_value[j] }), .{ .y = -config.general_center_from_bottom });
+                    const real_position_s = rl.Vector2Add(rl.Vector2Add(position[i], .{ .y = -above_ground_value[i] }), .{ .y = -config.general_center_from_bottom });
+                    const real_position_p = rl.Vector2Add(rl.Vector2Add(position[j], .{ .y = -above_ground_value[j] }), .{ .y = -config.general_center_from_bottom });
 
-                    if (c.Vector2Distance(real_position_s, real_position_p) <= config.general_radius * 2) {
+                    if (rl.Vector2Distance(real_position_s, real_position_p) <= config.general_radius * 2) {
                         if (iframes[j] <= 0) {
-                            velocity[j] = c.Vector2Add(velocity[j], c.Vector2Scale(velocity[i], config.damage_inertia_factor * 0.2));
+                            velocity[j] = rl.Vector2Add(velocity[j], rl.Vector2Scale(velocity[i], config.damage_inertia_factor * 0.2));
                             audio_manager.playOneOf(game_manager.rng, &.{ .DamageFromSupostat0, .DamageFromSupostat1, .DamageFromSupostat2, .DamageFromSupostat3 });
                             health[j] -= 1;
                             damage_animation[j] = 1;
@@ -599,11 +599,11 @@ const ArenaWidth = 100 * 16;
 const ArenaHeight = 100 * 16;
 
 fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalConfig) void {
-    c.DrawRectangle(-ArenaWidth * 0.5, -ArenaHeight * 0.5, 1, ArenaHeight, c.GRAY);
-    c.DrawRectangle(ArenaWidth * 0.5, -ArenaHeight * 0.5, 1, ArenaHeight, c.GRAY);
+    rl.DrawRectangle(-ArenaWidth * 0.5, -ArenaHeight * 0.5, 1, ArenaHeight, rl.GRAY);
+    rl.DrawRectangle(ArenaWidth * 0.5, -ArenaHeight * 0.5, 1, ArenaHeight, rl.GRAY);
 
-    c.DrawRectangle(-ArenaWidth * 0.5, -ArenaHeight * 0.5, ArenaWidth, 1, c.GRAY);
-    c.DrawRectangle(-ArenaWidth * 0.5, ArenaHeight * 0.5, ArenaWidth + 1, 1, c.GRAY);
+    rl.DrawRectangle(-ArenaWidth * 0.5, -ArenaHeight * 0.5, ArenaWidth, 1, rl.GRAY);
+    rl.DrawRectangle(-ArenaWidth * 0.5, ArenaHeight * 0.5, ArenaWidth + 1, 1, rl.GRAY);
 
     {
         var frame_prng = std.Random.DefaultPrng.init(0x69);
@@ -617,10 +617,10 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
                     const DecorSprites = [_]SpriteHandle{ .Decor0, .Decor1 };
                     const decor_index = frame_rng.uintLessThan(usize, DecorSprites.len);
 
-                    var hsv = c.ColorToHSV(c.GREEN);
+                    var hsv = rl.ColorToHSV(rl.GREEN);
                     hsv.y = frame_rng.float(f32) * 0.5 + 0.25;
                     hsv.z = frame_rng.float(f32) * 0.5 + 0.25;
-                    const final_color = c.ColorFromHSV(hsv.x, hsv.y, hsv.z);
+                    const final_color = rl.ColorFromHSV(hsv.x, hsv.y, hsv.z);
 
                     drawSprite(
                         sm.get(DecorSprites[decor_index]),
@@ -653,10 +653,10 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
                     }
 
                     if (iframe_blink) {
-                        const final_position = c.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
+                        const final_position = rl.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
                         const player_sprite = sm.get(.Player);
                         {
-                            const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
+                            const final_tint = rl.ColorLerp(tint[i], rl.WHITE, damage_animation[i]);
                             drawSprite(player_sprite, final_position, 0, final_tint);
                         }
                         const blaster_sprite = sm.get(.Blaster);
@@ -670,11 +670,11 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
                                 input.shoot_right,
                             );
 
-                            const blaster_position = c.Vector2Add(
-                                c.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
-                                c.Vector2Add(
+                            const blaster_position = rl.Vector2Add(
+                                rl.Vector2{ .x = 0, .y = -config.player_shoot_hands_height },
+                                rl.Vector2Add(
                                     final_position,
-                                    c.Vector2Scale(shoot_direction, config.player_blaster_distance),
+                                    rl.Vector2Scale(shoot_direction, config.player_blaster_distance),
                                 ),
                             );
 
@@ -720,7 +720,7 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
                             //     .{angle},
                             // ));
                             {
-                                const final_tint = c.ColorLerp(c.DARKGREEN, c.WHITE, damage_animation[i]);
+                                const final_tint = rl.ColorLerp(rl.DARKGREEN, rl.WHITE, damage_animation[i]);
                                 drawSprite(blaster_sprite, blaster_position, angle, final_tint);
                             }
                         }
@@ -732,8 +732,8 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
                     const projectile_sprite = sm.get(.Projectile);
                     drawSprite(projectile_sprite, position[i], 0, tint[i]);
                 } else if (flags[i].class == .Supostat) {
-                    const final_position = c.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
-                    const final_tint = c.ColorLerp(tint[i], c.WHITE, damage_animation[i]);
+                    const final_position = rl.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
+                    const final_tint = rl.ColorLerp(tint[i], rl.WHITE, damage_animation[i]);
                     const monster_sprite = sm.get(.Enemy0);
                     drawSprite(monster_sprite, final_position, 0, final_tint);
                 }
@@ -768,31 +768,31 @@ fn drawBatteryIcon(zoomed_screen_width: f32, energy: f32) void {
 
     const energy_px: f32 = @trunc((max_energy_px * energy) / GigaEntity.MaxEnergy);
 
-    const pos = c.Vector2{ .x = zoomed_screen_width - width_px - pad, .y = pad };
+    const pos = rl.Vector2{ .x = zoomed_screen_width - width_px - pad, .y = pad };
 
-    const color = if (energy >= low_energy) c.WHITE else c.RED;
+    const color = if (energy >= low_energy) rl.WHITE else rl.RED;
 
-    c.DrawRectangleV(
+    rl.DrawRectangleV(
         .{ .x = pos.x, .y = pos.y + 1 },
         .{ .x = 1, .y = height_px - 2 },
         color,
     );
-    c.DrawRectangleV(
+    rl.DrawRectangleV(
         .{ .x = pos.x + width_px - 1, .y = pos.y + 1 },
         .{ .x = 1, .y = height_px - 2 },
         color,
     );
-    c.DrawRectangleV(
+    rl.DrawRectangleV(
         .{ .x = pos.x + 1, .y = pos.y },
         .{ .x = width_px - 2, .y = 1 },
         color,
     );
-    c.DrawRectangleV(
+    rl.DrawRectangleV(
         .{ .x = pos.x + 1, .y = pos.y + height_px - 1 },
         .{ .x = width_px - 2, .y = 1 },
         color,
     );
-    c.DrawRectangleV(
+    rl.DrawRectangleV(
         .{ .x = pos.x + 2, .y = pos.y + 2 },
         .{ .x = energy_px, .y = height_px - 4 },
         color,
@@ -805,7 +805,7 @@ var game_manager = GameManager{};
 
 pub fn main() !void {
     if (Release) {
-        c.SetTraceLogLevel(c.LOG_ERROR);
+        rl.SetTraceLogLevel(rl.LOG_ERROR);
     }
 
     var gpa = GPA{};
@@ -819,15 +819,15 @@ pub fn main() !void {
         config = loaded_config;
     }
 
-    c.SetConfigFlags(c.FLAG_WINDOW_RESIZABLE);
+    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE);
 
-    c.InitWindow(1280, 720, "The Discharge of Captain Volt");
+    rl.InitWindow(1280, 720, "The Discharge of Captain Volt");
 
-    defer c.CloseWindow();
-    c.InitAudioDevice();
-    defer c.CloseAudioDevice();
+    defer rl.CloseWindow();
+    rl.InitAudioDevice();
+    defer rl.CloseAudioDevice();
 
-    c.SetTargetFPS(60);
+    rl.SetTargetFPS(60);
 
     var config_watcher = try util.FileWatcher.init(".", "config.json", 0.5);
 
@@ -866,9 +866,9 @@ pub fn main() !void {
     var frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());
     const frame_allocator = frame_arena.allocator();
 
-    c.SetMasterVolume(config.audio_master_volume);
+    rl.SetMasterVolume(config.audio_master_volume);
 
-    var camera_position = c.Vector2{};
+    var camera_position = rl.Vector2{};
 
     hi_score = loadHiScore(gpa.allocator());
     defer {
@@ -880,30 +880,30 @@ pub fn main() !void {
         };
     }
 
-    while (!c.WindowShouldClose()) {
+    while (!rl.WindowShouldClose()) {
         frame_messages.clearRetainingCapacity();
         _ = frame_arena.reset(.retain_capacity);
 
         if (game_manager.state == .GameOver) {
-            if (c.GetKeyPressed() > 0) {
+            if (rl.GetKeyPressed() > 0) {
                 game_manager.reset(&entity_manager, audio_manager);
             }
         } else if (game_manager.state == .StartScreen) {
-            if (c.GetKeyPressed() > 0) {
+            if (rl.GetKeyPressed() > 0) {
                 game_manager.reset(&entity_manager, audio_manager);
             }
         }
 
         const input = Input{
-            .dt = c.GetFrameTime(),
-            .up = c.IsKeyDown(c.KEY_W),
-            .down = c.IsKeyDown(c.KEY_S),
-            .left = c.IsKeyDown(c.KEY_A),
-            .right = c.IsKeyDown(c.KEY_D),
-            .shoot_up = c.IsKeyDown(c.KEY_I) or c.IsKeyDown(c.KEY_UP),
-            .shoot_down = c.IsKeyDown(c.KEY_K) or c.IsKeyDown(c.KEY_DOWN),
-            .shoot_left = c.IsKeyDown(c.KEY_J) or c.IsKeyDown(c.KEY_LEFT),
-            .shoot_right = c.IsKeyDown(c.KEY_L) or c.IsKeyDown(c.KEY_RIGHT),
+            .dt = rl.GetFrameTime(),
+            .up = rl.IsKeyDown(rl.KEY_W),
+            .down = rl.IsKeyDown(rl.KEY_S),
+            .left = rl.IsKeyDown(rl.KEY_A),
+            .right = rl.IsKeyDown(rl.KEY_D),
+            .shoot_up = rl.IsKeyDown(rl.KEY_I) or rl.IsKeyDown(rl.KEY_UP),
+            .shoot_down = rl.IsKeyDown(rl.KEY_K) or rl.IsKeyDown(rl.KEY_DOWN),
+            .shoot_left = rl.IsKeyDown(rl.KEY_J) or rl.IsKeyDown(rl.KEY_LEFT),
+            .shoot_right = rl.IsKeyDown(rl.KEY_L) or rl.IsKeyDown(rl.KEY_RIGHT),
         };
 
         if (!Release) {
@@ -918,30 +918,30 @@ pub fn main() !void {
             }
         }
 
-        const screen_width: f32 = @floatFromInt(c.GetScreenWidth());
-        const screen_height: f32 = @floatFromInt(c.GetScreenHeight());
+        const screen_width: f32 = @floatFromInt(rl.GetScreenWidth());
+        const screen_height: f32 = @floatFromInt(rl.GetScreenHeight());
 
-        var player_position_for_pursuit: ?c.Vector2 = null;
+        var player_position_for_pursuit: ?rl.Vector2 = null;
         if (entity_manager.entityField(game_manager.player_handle, .position)) |player_position| {
-            camera_position = c.Vector2Lerp(camera_position, player_position.*, config.camera_lerp_value);
+            camera_position = rl.Vector2Lerp(camera_position, player_position.*, config.camera_lerp_value);
             player_position_for_pursuit = player_position.*;
         }
 
         const Zoom = 3;
 
-        const camera = c.Camera2D{
+        const camera = rl.Camera2D{
             .offset = .{ .x = screen_width * 0.5, .y = screen_height * 0.5 },
             .rotation = 0,
             .target = camera_position,
             .zoom = Zoom,
         };
 
-        c.BeginDrawing();
-        defer c.EndDrawing();
+        rl.BeginDrawing();
+        defer rl.EndDrawing();
 
-        c.BeginMode2D(camera);
+        rl.BeginMode2D(camera);
 
-        c.ClearBackground(c.BLACK);
+        rl.ClearBackground(rl.BLACK);
 
         game_manager.update(input, &entity_manager);
 
@@ -965,8 +965,8 @@ pub fn main() !void {
 
         if (false) {
             // true - to see cool graph
-            c.DrawLine(0, 0, 500, 0, c.RED);
-            c.DrawLine(0, 0, 0, -500, c.GREEN);
+            rl.DrawLine(0, 0, 500, 0, rl.RED);
+            rl.DrawLine(0, 0, 0, -500, rl.GREEN);
 
             const hop_distance: f32 = 5;
             const max_angle: f32 = std.math.degreesToRadians(180);
@@ -990,19 +990,19 @@ pub fn main() !void {
 
                 const value = @sin(angle_value) * hop_amp;
 
-                c.DrawLineV(.{ .x = t, .y = -prev_value }, .{ .x = t, .y = -value }, c.GOLD);
+                rl.DrawLineV(.{ .x = t, .y = -prev_value }, .{ .x = t, .y = -value }, rl.GOLD);
 
                 prev_value = value;
             }
         }
 
-        c.EndMode2D();
+        rl.EndMode2D();
 
-        const gui_camera = c.Camera2D{
+        const gui_camera = rl.Camera2D{
             .zoom = Zoom,
         };
 
-        c.BeginMode2D(gui_camera);
+        rl.BeginMode2D(gui_camera);
 
         const zoomed_screen_width = screen_width / Zoom;
         const zoomed_screen_height = screen_height / Zoom;
@@ -1016,13 +1016,13 @@ pub fn main() !void {
                 {
                     const text: [*c]const u8 = "Dudes overwhelmed you!";
 
-                    const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
-                    c.DrawText(
+                    const width: f32 = @floatFromInt(rl.MeasureText(text, font_size));
+                    rl.DrawText(
                         text,
                         @intFromFloat((zoomed_screen_width - width) * 0.5),
                         @intFromFloat((zoomed_screen_height - full_text_height) * 0.5),
                         font_size,
-                        c.RAYWHITE,
+                        rl.RAYWHITE,
                     );
                 }
                 {
@@ -1031,32 +1031,32 @@ pub fn main() !void {
                         "Respawn in = {d:.0}...",
                         .{game_manager.respawn_time},
                     );
-                    const width: f32 = @floatFromInt(c.MeasureText(text, font_size));
-                    c.DrawText(
+                    const width: f32 = @floatFromInt(rl.MeasureText(text, font_size));
+                    rl.DrawText(
                         text.ptr,
                         @intFromFloat((zoomed_screen_width - width) * 0.5),
                         @intFromFloat((zoomed_screen_height - full_text_height) * 0.5 + padding + font_size),
                         font_size,
-                        c.RAYWHITE,
+                        rl.RAYWHITE,
                     );
                 }
             },
             .Playing => {
                 if (entity_manager.entityField(game_manager.player_handle, .health)) |player_health| {
                     var i: i8 = 0;
-                    var pos = c.Vector2{ .x = 2, .y = 2 };
+                    var pos = rl.Vector2{ .x = 2, .y = 2 };
                     while (i < player_health.*) : (i += 1) {
                         const sprite = sprite_manager.get(.Heart);
-                        drawSprite(sprite, pos, 0, c.RED);
+                        drawSprite(sprite, pos, 0, rl.RED);
                         pos.x += sprite.size.x;
                     }
                 }
                 {
                     var i: i8 = 0;
-                    var pos = c.Vector2{ .x = 2, .y = zoomed_screen_height - 16 - 2 };
+                    var pos = rl.Vector2{ .x = 2, .y = zoomed_screen_height - 16 - 2 };
                     while (i < game_manager.guys_count) : (i += 1) {
                         const sprite = sprite_manager.get(.Helmet);
-                        drawSprite(sprite, pos, 0, c.LIME);
+                        drawSprite(sprite, pos, 0, rl.LIME);
                         pos.x += sprite.size.x;
                     }
                 }
@@ -1073,13 +1073,13 @@ pub fn main() !void {
                         "{d}",
                         .{game_manager.score},
                     );
-                    const width: f32 = @floatFromInt(c.MeasureText(text, score_font_size));
-                    c.DrawText(
+                    const width: f32 = @floatFromInt(rl.MeasureText(text, score_font_size));
+                    rl.DrawText(
                         text.ptr,
                         @intFromFloat((zoomed_screen_width - width) * 0.5),
                         @intFromFloat(padding),
                         score_font_size,
-                        c.RAYWHITE,
+                        rl.RAYWHITE,
                     );
                 }
             },
@@ -1106,16 +1106,16 @@ pub fn main() !void {
             else => {},
         }
 
-        c.EndMode2D();
+        rl.EndMode2D();
 
         if (!Release) {
-            c.DrawFPS(2, 2);
+            rl.DrawFPS(2, 2);
         }
 
         if (DebugMode) {
             for (frame_messages.items, 0..) |frame_message, i| {
                 const index: c_int = @intCast(i);
-                c.DrawText(frame_message.ptr, 2, 20 * (index + 1), 18, c.RAYWHITE);
+                rl.DrawText(frame_message.ptr, 2, 20 * (index + 1), 18, rl.RAYWHITE);
             }
         }
 
@@ -1136,24 +1136,24 @@ fn generalScreenWithBlinkingPrompt(
     const padding = 4;
     const top_font_size_f: f32 = @floatFromInt(top_font_size);
     {
-        const width: f32 = @floatFromInt(c.MeasureText(top_text, top_font_size));
-        c.DrawText(
+        const width: f32 = @floatFromInt(rl.MeasureText(top_text, top_font_size));
+        rl.DrawText(
             top_text,
             @intFromFloat((zoomed_screen_width - width) * 0.5),
             @intFromFloat((zoomed_screen_height - top_font_size_f) * 0.5),
             top_font_size,
-            c.RAYWHITE,
+            rl.RAYWHITE,
         );
     }
-    if (@mod(@trunc(c.GetTime() / 0.6), 2) > 0) {
+    if (@mod(@trunc(rl.GetTime() / 0.6), 2) > 0) {
         const font_size = 20;
-        const width: f32 = @floatFromInt(c.MeasureText(blinking_text, font_size));
-        c.DrawText(
+        const width: f32 = @floatFromInt(rl.MeasureText(blinking_text, font_size));
+        rl.DrawText(
             blinking_text,
             @intFromFloat((zoomed_screen_width - width) * 0.5),
             @intFromFloat((zoomed_screen_height - top_font_size_f) * 0.5 + top_font_size_f + padding),
             font_size,
-            c.RAYWHITE,
+            rl.RAYWHITE,
         );
     }
 
@@ -1165,13 +1165,13 @@ fn generalScreenWithBlinkingPrompt(
             "hi-score {d}",
             .{hi_score},
         );
-        const width: f32 = @floatFromInt(c.MeasureText(text, score_font_size));
-        c.DrawText(
+        const width: f32 = @floatFromInt(rl.MeasureText(text, score_font_size));
+        rl.DrawText(
             text.ptr,
             @intFromFloat((zoomed_screen_width - width) * 0.5),
             @intFromFloat(score_padding),
             score_font_size,
-            c.RAYWHITE,
+            rl.RAYWHITE,
         );
     }
 }

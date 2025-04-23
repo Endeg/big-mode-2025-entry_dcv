@@ -35,7 +35,7 @@
 #define SUPPORT_MODULE_RSHAPES          1
 #define SUPPORT_MODULE_RTEXTURES        1
 #define SUPPORT_MODULE_RTEXT            1       // WARNING: It requires SUPPORT_MODULE_RTEXTURES to load sprite font textures
-#define SUPPORT_MODULE_RMODELS          1
+#define SUPPORT_MODULE_RMODELS          0
 #define SUPPORT_MODULE_RAUDIO           1
 
 //------------------------------------------------------------------------------------
@@ -50,7 +50,7 @@
 // Mouse gestures are directly mapped like touches and processed by gestures system
 #define SUPPORT_MOUSE_GESTURES          1
 // Reconfigure standard input to receive key inputs, works with SSH connection.
-#define SUPPORT_SSH_KEYBOARD_RPI        1
+#define SUPPORT_SSH_KEYBOARD_RPI        0
 // Setting a higher resolution can improve the accuracy of time-out intervals in wait functions.
 // However, it can also reduce overall system performance, because the thread scheduler switches tasks more often.
 #define SUPPORT_WINMM_HIGHRES_TIMER     1
@@ -59,11 +59,11 @@
 // Use a partial-busy wait loop, in this case frame sleeps for most of the time, but then runs a busy loop at the end for accuracy
 #define SUPPORT_PARTIALBUSY_WAIT_LOOP    1
 // Allow automatic screen capture of current screen pressing F12, defined in KeyCallback()
-#define SUPPORT_SCREEN_CAPTURE          1
+#define SUPPORT_SCREEN_CAPTURE          0
 // Allow automatic gif recording of current screen pressing CTRL+F12, defined in KeyCallback()
-#define SUPPORT_GIF_RECORDING           1
+#define SUPPORT_GIF_RECORDING           0
 // Support CompressData() and DecompressData() functions
-#define SUPPORT_COMPRESSION_API         1
+#define SUPPORT_COMPRESSION_API         0
 // Support automatic generated events, loading and recording of those events when required
 #define SUPPORT_AUTOMATION_EVENTS       1
 // Support custom frame control, only for advanced users
@@ -73,7 +73,7 @@
 
 // Support for clipboard image loading
 // NOTE: Only working on SDL3, GLFW (Windows) and RGFW (Windows)
-#define SUPPORT_CLIPBOARD_IMAGE    1
+#define SUPPORT_CLIPBOARD_IMAGE    0
 
 // NOTE: Clipboard image loading requires support for some image file formats
 // TODO: Those defines should probably be removed from here, I prefer to let the user manage them
@@ -136,8 +136,8 @@
 
 #define RL_MAX_SHADER_LOCATIONS               32      // Maximum number of shader locations supported
 
-#define RL_CULL_DISTANCE_NEAR               0.01      // Default projection matrix near cull distance
-#define RL_CULL_DISTANCE_FAR              1000.0      // Default projection matrix far cull distance
+#define RL_CULL_DISTANCE_NEAR              0.001      // Default projection matrix near cull distance
+#define RL_CULL_DISTANCE_FAR             10000.0      // Default projection matrix far cull distance
 
 // Default shader vertex attribute locations
 #define RL_DEFAULT_SHADER_ATTRIB_LOCATION_POSITION    0

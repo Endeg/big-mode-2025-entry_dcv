@@ -4,29 +4,29 @@ const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
-const c = @import("c.zig");
+const rl = @import("raylib.zig");
 
-sounds: std.EnumArray(AudioAsset, c.Sound),
+sounds: std.EnumArray(AudioAsset, rl.Sound),
 
 pub fn init() AudioManager {
-    var sounds = std.EnumArray(AudioAsset, c.Sound).initUndefined();
+    var sounds = std.EnumArray(AudioAsset, rl.Sound).initUndefined();
     inline for (@typeInfo(AudioAsset).@"enum".fields) |audio_asset_field| {
         const audio_asset: AudioAsset = @enumFromInt(audio_asset_field.value);
         const wave_data = AudioAssets.get(audio_asset);
 
-        const wave = c.LoadWaveFromMemory(".wav", wave_data.ptr, @intCast(wave_data.len));
-        assert(c.IsWaveValid(wave));
-        defer c.UnloadWave(wave);
+        const wave = rl.LoadWaveFromMemory(".wav", wave_data.ptr, @intCast(wave_data.len));
+        assert(rl.IsWaveValid(wave));
+        defer rl.UnloadWave(wave);
 
-        const sound = c.LoadSoundFromWave(wave);
-        assert(c.IsSoundValid(sound));
+        const sound = rl.LoadSoundFromWave(wave);
+        assert(rl.IsSoundValid(sound));
         sounds.set(audio_asset, sound);
     }
     return .{ .sounds = sounds };
 }
 
 pub fn play(self: AudioManager, audio_asset: AudioAsset) void {
-    c.PlaySound(self.sounds.get(audio_asset));
+    rl.PlaySound(self.sounds.get(audio_asset));
 }
 
 pub fn playOneOf(

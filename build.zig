@@ -1,8 +1,70 @@
 const std = @import("std");
 
+fn raylibModule(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    const raylib_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+
+    raylib_mod.addIncludePath(.{ .src_path = .{ .owner = b, .sub_path = "libs/raylib" } });
+    raylib_mod.linkSystemLibrary("gdi32", .{});
+
+    raylib_mod.addCSourceFiles(.{
+        .flags = &.{
+            // Raylib flags
+            "-DEXTERNAL_CONFIG_FLAGS=1",
+            "-DPLATFORM_DESKTOP_RGFW=1",
+            "-DSUPPORT_MODULE_RSHAPES=1",
+            "-DSUPPORT_MODULE_RTEXTURES=1",
+            "-DSUPPORT_MODULE_RTEXT=1",
+            "-DSUPPORT_MODULE_RMODELS=0",
+            "-DSUPPORT_MODULE_RAUDIO=1",
+            "-DSUPPORT_FILEFORMAT_TTF=1",
+            "-DSUPPORT_FILEFORMAT_PNG=1",
+            "-DSUPPORT_FILEFORMAT_WAV=1",
+            "-DSUPPORT_TEXT_MANIPULATION=1",
+            "-DSUPPORT_DEFAULT_FONT=1",
+            "-DSUPPORT_TRACELOG=1",
+
+            // Necessary flags
+            "-std=gnu99",
+            "-D_GNU_SOURCE",
+            "-DGL_SILENCE_DEPRECATION=199309L",
+            "-fno-sanitize=undefined", // https://github.com/raysan5/raylib/issues/3674
+
+            // Shared lib specific
+            "-fPIC",
+            "-DBUILD_LIBTYPE_SHARED",
+        },
+        .files = &.{
+            "libs/raylib/rcore.c",
+            "libs/raylib/raudio.c",
+            "libs/raylib/rmodels.c",
+            "libs/raylib/rshapes.c",
+            "libs/raylib/rtext.c",
+            "libs/raylib/rtextures.c",
+            "libs/raylib/utils.c",
+        },
+    });
+
+    return raylib_mod;
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
     const optimize = b.standardOptimizeOption(.{});
+
+    const raylib_mod = raylibModule(b, target, optimize);
+
+    const raylib_lib = b.addSharedLibrary(.{
+        .name = "raylib",
+        .root_module = raylib_mod,
+    });
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -14,37 +76,10 @@ pub fn build(b: *std.Build) void {
         .name = "captain_volt",
         .root_module = exe_mod,
     });
-    exe.linkLibC();
-    const SystemLibraries = .{
-        "gdi32",
-    };
-    inline for (SystemLibraries) |lib| {
-        exe.linkSystemLibrary(lib);
-    }
-
-    const RaylibFlags: []const []const u8 = &.{
-        "-DPLATFORM_DESKTOP_RGFW=1",
-    };
-
-    const RaylibSourceFiles = .{
-        "rcore.c",
-        "rshapes.c",
-        "rtextures.c",
-        "raudio.c",
-        "rtext.c",
-        "utils.c",
-    };
-
-    inline for (RaylibSourceFiles) |rl_src| {
-        exe.addCSourceFile(
-            .{ .file = .{ .src_path = .{ .owner = b, .sub_path = "libs/raylib/" ++ rl_src } }, .flags = RaylibFlags },
-        );
-    }
-    if (target.result.os.tag == .windows and optimize == .ReleaseFast) {
-        exe.subsystem = .Windows;
-    }
+    exe.linkLibrary(raylib_lib);
 
     b.installArtifact(exe);
+    b.installArtifact(raylib_lib);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
