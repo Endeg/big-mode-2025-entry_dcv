@@ -1,0 +1,14 @@
+.{
+    .asset_directories = .{
+        "w:\\Projects\\playground\\zig-pg2\\asset-source",
+        "w:\\Projects\\playground\\assets",
+    },
+    .asset_extensions = .{
+        "gltf",
+        "glb",
+        "bin",
+        "png",
+        "jpg",
+        "jpeg",
+    },
+}
