@@ -59,13 +59,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
     const optimize = b.standardOptimizeOption(.{});
 
-    const raylib_mod = raylibModule(b, target, optimize);
-
-    const raylib_lib = b.addSharedLibrary(.{
-        .name = "raylib",
-        .root_module = raylib_mod,
-    });
-
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -76,10 +69,8 @@ pub fn build(b: *std.Build) void {
         .name = "captain_volt",
         .root_module = exe_mod,
     });
-    exe.linkLibrary(raylib_lib);
 
     b.installArtifact(exe);
-    b.installArtifact(raylib_lib);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

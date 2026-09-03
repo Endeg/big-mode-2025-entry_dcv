@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
-const rl = @import("raylib.zig");
+const rl = @import("raylib_stub.zig");
 
 const util = @import("util.zig");
 
@@ -33,8 +33,6 @@ const Sprite = SpriteManager.Sprite;
 const SpriteHandle = SpriteManager.SpriteHandle;
 
 const AudioManager = @import("AudioManager.zig");
-
-const GPA = std.heap.GeneralPurposeAllocator(.{});
 
 fn drawSprite(
     sprite: *const Sprite,
@@ -85,9 +83,10 @@ const GameManager = struct {
 
     const GuyAwardScore = 200;
 
-    pub fn reset(self: *Self, entity_manager: *EntityManager, audio_manager: AudioManager) void {
+    pub fn reset(self: *Self, entity_manager: *EntityManager, audio_manager: AudioManager, io: std.Io) void {
+        const now_ms = std.Io.Clock.now(std.Io.Clock.real, io).toMilliseconds();
         self.* = Self{};
-        self.game_prng = std.Random.DefaultPrng.init(@bitCast(std.time.milliTimestamp()));
+        self.game_prng = std.Random.DefaultPrng.init(@intCast(now_ms));
         self.rng = self.game_prng.random();
         self.state = .Playing;
 
@@ -317,15 +316,17 @@ fn update(
             acceleration[i] = determineDirection(input.up, input.down, input.left, input.right);
 
             acceleration[i] = rl.Vector2Scale(rl.Vector2Normalize(acceleration[i]), config.player_acc_magnitude);
-            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
                 frame_allocator,
                 "player.acceleration = {d:.4}, {d:.4}.",
                 .{ acceleration[i].x, acceleration[i].y },
+                0,
             ));
-            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
                 frame_allocator,
                 "player.velocity = {d:.4}, {d:.4}.",
                 .{ velocity[i].x, velocity[i].y },
+                0,
             ));
         } else if (flags[i].class == .Projectile) {
             ttl[i] = @max(ttl[i] - input.dt, 0);
@@ -494,10 +495,11 @@ fn update(
                 energy[i] = std.math.clamp(energy[i] - config.shoot_energy_cost, 0, GigaEntity.MaxEnergy);
             }
 
-            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
                 frame_allocator,
                 "player.shoot_cooldown = {d:.4}.",
                 .{shoot_info[i].cooldown},
+                0,
             ));
         }
 
@@ -510,9 +512,12 @@ fn update(
         }
 
         if (flags[i].class == .Player) {
-            frame_messages.appendAssumeCapacity(
-                try std.fmt.allocPrintZ(frame_allocator, "player.iframes = {d:.4}.", .{iframes[i]}),
-            );
+            frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
+                frame_allocator,
+                "player.iframes = {d:.4}.",
+                .{iframes[i]},
+                0,
+            ));
         }
     }
 
@@ -714,7 +719,7 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
 
                             const angle = Angles[angle_index];
 
-                            // frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+                            // frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
                             //     frame_allocator,
                             //     "player.blaster_angle = {d:.4}.",
                             //     .{angle},
@@ -803,19 +808,13 @@ const Release = @import("builtin").mode == .ReleaseFast;
 
 var game_manager = GameManager{};
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     if (Release) {
         rl.SetTraceLogLevel(rl.LOG_ERROR);
     }
 
-    var gpa = GPA{};
-
-    defer if (gpa.deinit() == .leak) {
-        log.err("Oh no! Memory leaks happened!", .{});
-    };
-
     var config: GlobalConfig = .{};
-    if (GlobalConfig.load(".", "config.json", gpa.allocator())) |loaded_config| {
+    if (GlobalConfig.load(".", "config.json", init.gpa, init.io)) |loaded_config| {
         config = loaded_config;
     }
 
@@ -824,17 +823,15 @@ pub fn main() !void {
     rl.InitWindow(1280, 720, "The Discharge of Captain Volt");
 
     defer rl.CloseWindow();
-    rl.InitAudioDevice();
-    defer rl.CloseAudioDevice();
 
     rl.SetTargetFPS(60);
 
-    var config_watcher = try util.FileWatcher.init(".", "config.json", 0.5);
+    var config_watcher = try util.FileWatcher.init(".", "config.json", 0.5, init.io);
 
     const audio_manager = AudioManager.init();
     var sprite_manager = SpriteManager.init();
 
-    var entity_manager = try EntityManager.init(gpa.allocator());
+    var entity_manager = try EntityManager.init(init.gpa);
     defer entity_manager.deinit();
 
     if (false) {
@@ -857,24 +854,22 @@ pub fn main() !void {
         }
     }
 
-    var frame_messages = try std.ArrayList([]const u8).initCapacity(gpa.allocator(), 1024);
-    defer frame_messages.deinit();
-    const frame_memory = try gpa.allocator().alloc(u8, 1 * 1024 * 1024);
-    defer gpa.allocator().free(frame_memory);
+    var frame_messages = try std.ArrayList([]const u8).initCapacity(init.gpa, 1024);
+    defer frame_messages.deinit(init.gpa);
+    const frame_memory = try init.gpa.alloc(u8, 1 * 1024 * 1024);
+    defer init.gpa.free(frame_memory);
 
     var frame_fba = std.heap.FixedBufferAllocator.init(frame_memory);
     var frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());
     const frame_allocator = frame_arena.allocator();
 
-    rl.SetMasterVolume(config.audio_master_volume);
-
     var camera_position = rl.Vector2{};
 
-    hi_score = loadHiScore(gpa.allocator());
+    hi_score = loadHiScore(init.gpa, init.io);
     defer {
-        saveHiScore() catch |err| {
+        saveHiScore(init.io) catch |err| {
             log.err(
-                "{s} was not saved because of [{!}], but it was probably not OK.",
+                "{s} was not saved because of [{any}], but it was probably not OK.",
                 .{ HiScoreFile, err },
             );
         };
@@ -885,31 +880,31 @@ pub fn main() !void {
         _ = frame_arena.reset(.retain_capacity);
 
         if (game_manager.state == .GameOver) {
-            if (rl.GetKeyPressed() > 0) {
-                game_manager.reset(&entity_manager, audio_manager);
+            if (rl.GetKeyPressed() != .none) {
+                game_manager.reset(&entity_manager, audio_manager, init.io);
             }
         } else if (game_manager.state == .StartScreen) {
-            if (rl.GetKeyPressed() > 0) {
-                game_manager.reset(&entity_manager, audio_manager);
+            if (rl.GetKeyPressed() != .none) {
+                game_manager.reset(&entity_manager, audio_manager, init.io);
             }
         }
 
         const input = Input{
             .dt = rl.GetFrameTime(),
-            .up = rl.IsKeyDown(rl.KEY_W),
-            .down = rl.IsKeyDown(rl.KEY_S),
-            .left = rl.IsKeyDown(rl.KEY_A),
-            .right = rl.IsKeyDown(rl.KEY_D),
-            .shoot_up = rl.IsKeyDown(rl.KEY_I) or rl.IsKeyDown(rl.KEY_UP),
-            .shoot_down = rl.IsKeyDown(rl.KEY_K) or rl.IsKeyDown(rl.KEY_DOWN),
-            .shoot_left = rl.IsKeyDown(rl.KEY_J) or rl.IsKeyDown(rl.KEY_LEFT),
-            .shoot_right = rl.IsKeyDown(rl.KEY_L) or rl.IsKeyDown(rl.KEY_RIGHT),
+            .up = rl.IsKeyDown(.W),
+            .down = rl.IsKeyDown(.S),
+            .left = rl.IsKeyDown(.A),
+            .right = rl.IsKeyDown(.D),
+            .shoot_up = rl.IsKeyDown(.I) or rl.IsKeyDown(.UP),
+            .shoot_down = rl.IsKeyDown(.K) or rl.IsKeyDown(.DOWN),
+            .shoot_left = rl.IsKeyDown(.J) or rl.IsKeyDown(.LEFT),
+            .shoot_right = rl.IsKeyDown(.L) or rl.IsKeyDown(.RIGHT),
         };
 
         if (!Release) {
-            if (config_watcher.wasModified(input.dt)) {
+            if (config_watcher.wasModified(input.dt, init.io)) {
                 log.debug("Config was changed, reloading...", .{});
-                if (GlobalConfig.load(".", "config.json", frame_allocator)) |loaded_config| {
+                if (GlobalConfig.load(".", "config.json", frame_allocator, init.io)) |loaded_config| {
                     //TODO: Print updated values
                     config = loaded_config;
                 } else {
@@ -957,10 +952,11 @@ pub fn main() !void {
         cleanupEntities(&entity_manager);
         render(&entity_manager, &sprite_manager, input, config);
 
-        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintZ(
+        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
             frame_allocator,
             "entities.count = {d}.",
             .{entity_manager.entities.len},
+            0,
         ));
 
         if (false) {
@@ -1026,10 +1022,11 @@ pub fn main() !void {
                     );
                 }
                 {
-                    const text = try std.fmt.allocPrintZ(
+                    const text = try std.fmt.allocPrintSentinel(
                         frame_allocator,
                         "Respawn in = {d:.0}...",
                         .{game_manager.respawn_time},
+                        0,
                     );
                     const width: f32 = @floatFromInt(rl.MeasureText(text, font_size));
                     rl.DrawText(
@@ -1068,10 +1065,11 @@ pub fn main() !void {
                 {
                     const score_font_size = 16;
                     const padding = 4;
-                    const text = try std.fmt.allocPrintZ(
+                    const text = try std.fmt.allocPrintSentinel(
                         frame_allocator,
                         "{d}",
                         .{game_manager.score},
+                        0,
                     );
                     const width: f32 = @floatFromInt(rl.MeasureText(text, score_font_size));
                     rl.DrawText(
@@ -1160,10 +1158,11 @@ fn generalScreenWithBlinkingPrompt(
     {
         const score_font_size = 16;
         const score_padding = 4;
-        const text = try std.fmt.allocPrintZ(
+        const text = try std.fmt.allocPrintSentinel(
             frame_allocator,
             "hi-score {d}",
             .{hi_score},
+            0,
         );
         const width: f32 = @floatFromInt(rl.MeasureText(text, score_font_size));
         rl.DrawText(
@@ -1182,8 +1181,8 @@ var hi_score: u32 = 0;
 
 const HiScoreFile = "hiscore.dat";
 
-fn loadHiScore(allocator: std.mem.Allocator) u32 {
-    const hi_score_data_maybe = util.readEntireFileAlloc(".", HiScoreFile, allocator);
+fn loadHiScore(allocator: std.mem.Allocator, io: std.Io) u32 {
+    const hi_score_data_maybe = util.readEntireFileAlloc(".", HiScoreFile, allocator, io);
 
     if (hi_score_data_maybe) |hi_score_data| {
         defer allocator.free(hi_score_data);
@@ -1194,7 +1193,7 @@ fn loadHiScore(allocator: std.mem.Allocator) u32 {
         }
     } else |err| {
         log.debug(
-            "{s} was not loaded because of [{!}], but it was probably OK.",
+            "{s} was not loaded because of [{any}], but it was probably OK.",
             .{ HiScoreFile, err },
         );
     }
@@ -1202,13 +1201,15 @@ fn loadHiScore(allocator: std.mem.Allocator) u32 {
     return 0;
 }
 
-fn saveHiScore() !void {
-    var d = try std.fs.cwd().openDir(".", .{});
-    defer d.close();
+fn saveHiScore(io: std.Io) !void {
+    var d = try std.Io.Dir.cwd().openDir(io, ".", .{});
+    defer d.close(io);
 
-    var f = try d.createFile(HiScoreFile, .{ .truncate = true });
-    defer f.close();
-    var r = f.writer();
+    var f = try d.createFile(io, HiScoreFile, .{ .truncate = true });
+    defer f.close(io);
 
-    try r.writeInt(u32, hi_score, .little);
+    var buffer: [8]u8 = undefined;
+    var r = f.writer(io, buffer[0..]);
+
+    try r.interface.writeInt(u32, hi_score, .little);
 }

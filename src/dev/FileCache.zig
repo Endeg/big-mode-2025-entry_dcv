@@ -94,7 +94,7 @@ pub fn get(self: *FileCache, name: []const u8) []const u8 {
         } else {
             const data = loadFileContents(loc, self.allocator) catch |err| {
                 std.log.err(
-                    "Problem loading file from {s}/{s}: {!}!",
+                    "Problem loading file from {s}/{s}: {any}!",
                     .{ loc.directory_path, loc.file_name, err },
                 );
                 return &.{};

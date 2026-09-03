@@ -4,7 +4,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
-const rl = @import("raylib.zig");
+const rl = @import("raylib_stub.zig");
 
 sounds: std.EnumArray(AudioAsset, rl.Sound),
 

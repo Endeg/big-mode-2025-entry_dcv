@@ -41,9 +41,9 @@ shoot_energy_cost: f32 = 0.5,
 battery_energy_amount: f32 = 40,
 audio_master_volume: f32 = 0.05,
 
-pub fn load(directory: []const u8, file_name: []const u8, allocator: std.mem.Allocator) ?GlobalConfig {
-    const config_json_content = util.readEntireFileAlloc(directory, file_name, allocator) catch |err| {
-        log.err("Problem reading config file ({!})!", .{err});
+pub fn load(directory: []const u8, file_name: []const u8, allocator: std.mem.Allocator, io: std.Io) ?GlobalConfig {
+    const config_json_content = util.readEntireFileAlloc(directory, file_name, allocator, io) catch |err| {
+        log.err("Problem reading config file ({any})!", .{err});
         return null;
     };
     defer allocator.free(config_json_content);
@@ -56,7 +56,7 @@ pub fn load(directory: []const u8, file_name: []const u8, allocator: std.mem.All
         defer parsed.deinit();
         return parsed.value;
     } else |err| {
-        log.err("Problem parsing config file ({!})!", .{err});
+        log.err("Problem parsing config file ({any})!", .{err});
     }
     return null;
 }

@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
-const rl = @import("raylib.zig");
+const rl = @import("raylib_stub.zig");
 
 pub const GigaEntity = struct {
     handle: EntityManager.Handle = undefined,
@@ -194,7 +194,7 @@ pub const EntityManager = struct {
         return new_handle;
     }
 
-    pub fn entityField(self: *Self, handle: Handle, comptime field: EntitySOA.Field) ?*std.meta.FieldType(GigaEntity, field) {
+    pub fn entityField(self: *Self, handle: Handle, comptime field: EntitySOA.Field) ?*@FieldType(GigaEntity, @tagName(field)) {
         if (self.entity_index.get(handle)) |entity_row| {
             return &self.entities.items(field)[entity_row];
         } else {

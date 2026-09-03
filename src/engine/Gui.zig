@@ -69,7 +69,7 @@ pub fn label(self: *Gui, text: []const u8) void {
     const allocator = self.fba.allocator();
 
     const text_z = allocator.dupeZ(u8, text) catch |err| {
-        log.err("Can't allocate null-terminated text for label: {!}!", .{err});
+        log.err("Can't allocate null-terminated text for label: {any}!", .{err});
         return;
     };
 
@@ -136,4 +136,4 @@ const std = @import("std");
 const log = std.log;
 const assert = std.debug.assert;
 
-const rl = @import("../raylib.zig");
+const rl = @import("../raylib_stub.zig");

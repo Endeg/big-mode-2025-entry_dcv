@@ -467,6 +467,6 @@ const GltfError = error{
 const std = @import("std");
 const assert = std.debug.assert;
 
-const rl = @import("../raylib.zig");
+const rl = @import("../raylib_stub.zig");
 
 const FileCache = @import("FileCache.zig");
