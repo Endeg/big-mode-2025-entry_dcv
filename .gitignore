@@ -1,6 +1,9 @@
 zig-out/
 .zig-cache/
+zig-pkg/
 *.rdi
+
+.reference/
 
 *.png
 *.ase

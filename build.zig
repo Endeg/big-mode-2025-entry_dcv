@@ -56,20 +56,42 @@ fn raylibModule(
 }
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
+    const target = b.standardTargetOptions(.{
+        .default_target = .{ .cpu_model = .baseline },
+    });
     const optimize = b.standardOptimizeOption(.{});
+
+    const zglfw_dep = b.dependency("zglfw", .{
+        .optimize = optimize,
+        .target = target,
+        .shared = true,
+        .import_vulkan = true,
+    });
+
+    const vulkan_mod = b.createModule(.{
+        .optimize = optimize,
+        .target = target,
+        .root_source_file = b.path("libs/vulkan/root.zig"),
+    });
+    zglfw_dep.module("root").addImport("vulkan", vulkan_mod);
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zglfw", .module = zglfw_dep.module("root") },
+            .{ .name = "vulkan", .module = vulkan_mod },
+        },
     });
 
     const exe = b.addExecutable(.{
         .name = "captain_volt",
         .root_module = exe_mod,
     });
+    exe_mod.linkLibrary(zglfw_dep.artifact("glfw"));
 
+    b.installArtifact(zglfw_dep.artifact("glfw"));
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

@@ -1,13 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const log = std.log;
-
-const rl = @import("raylib_stub.zig");
-
-const util = @import("util.zig");
-
-const GlobalConfig = @import("GlobalConfig.zig");
-
 //TODO: GPA allocator: dupeZ/free - possible bug
 
 // TODO: Main game loop:
@@ -24,15 +14,6 @@ const GlobalConfig = @import("GlobalConfig.zig");
 //         5. Blaster animation, use cooldown timer.
 //        +6. Trees, bushes and roads to have background.
 // TODO: Gamepad support
-
-const EntityManager = @import("entity.zig").EntityManager;
-const GigaEntity = @import("entity.zig").GigaEntity;
-
-const SpriteManager = @import("SpriteManager.zig");
-const Sprite = SpriteManager.Sprite;
-const SpriteHandle = SpriteManager.SpriteHandle;
-
-const AudioManager = @import("AudioManager.zig");
 
 fn drawSprite(
     sprite: *const Sprite,
@@ -818,11 +799,23 @@ pub fn main(init: std.process.Init) !void {
         config = loaded_config;
     }
 
-    rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE);
+    try glfw.init();
+    defer glfw.terminate();
 
-    rl.InitWindow(1280, 720, "The Discharge of Captain Volt");
+    assert(glfw.isVulkanSupported());
 
-    defer rl.CloseWindow();
+    const ScreenWidth = 1280;
+    const ScreenHeight = 720;
+
+    glfw.windowHint(.client_api, .no_api);
+    glfw.windowHint(.resizable, true);
+
+    const window = try glfw.createWindow(ScreenWidth, ScreenHeight, "The Discharge of Captain Volt", null, null);
+    defer window.destroy();
+
+    var gfx: Gfx = .{};
+    try gfx.init(init.arena.allocator(), window);
+    defer gfx.deinit();
 
     rl.SetTargetFPS(60);
 
@@ -867,7 +860,7 @@ pub fn main(init: std.process.Init) !void {
 
     hi_score = loadHiScore(init.gpa, init.io);
     defer {
-        saveHiScore(init.io) catch |err| {
+        if (false) saveHiScore(init.io) catch |err| {
             log.err(
                 "{s} was not saved because of [{any}], but it was probably not OK.",
                 .{ HiScoreFile, err },
@@ -1213,3 +1206,29 @@ fn saveHiScore(io: std.Io) !void {
 
     try r.interface.writeInt(u32, hi_score, .little);
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const log = std.log;
+
+const glfw = @import("zglfw");
+
+const builtin = @import("builtin");
+
+/// Deprecated
+const rl = @import("raylib_stub.zig");
+
+const util = @import("util.zig");
+
+const GlobalConfig = @import("GlobalConfig.zig");
+
+const Gfx = @import("GfxVulkan.zig");
+
+const EntityManager = @import("entity.zig").EntityManager;
+const GigaEntity = @import("entity.zig").GigaEntity;
+
+const SpriteManager = @import("SpriteManager.zig");
+const Sprite = SpriteManager.Sprite;
+const SpriteHandle = SpriteManager.SpriteHandle;
+
+const AudioManager = @import("AudioManager.zig");
