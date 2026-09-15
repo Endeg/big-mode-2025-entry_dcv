@@ -1,5 +1,8 @@
 const GfxVulkan = @This();
 
+const SimpleVertexBinary = @embedFile("simple.vert.spv");
+const SimpleFragmentBinary = @embedFile("simple.frag.spv");
+
 instance: vk.InstanceProxy = undefined,
 debug_messenger: vk.DebugUtilsMessengerEXT = undefined,
 surface: vk.SurfaceKHR = undefined,
@@ -16,6 +19,8 @@ swap_chain_extent: vk.Extent2D = undefined,
 swap_chain_images: [2]vk.Image = undefined,
 swap_chain_image_views: [2]vk.ImageView = undefined,
 swap_chain_format: vk.Format = undefined,
+vert_shader_module: vk.ShaderModule = undefined,
+frag_shader_module: vk.ShaderModule = undefined,
 
 intermediate: struct {
     vkb: vk.BaseWrapper,
@@ -302,9 +307,22 @@ pub fn init(self: *Self, arena: std.mem.Allocator, window: *glfw.Window) !void {
             }, null);
         }
     }
+
+    self.vert_shader_module = try self.device.createShaderModule(&.{
+        .code_size = SimpleVertexBinary.len,
+        .p_code = @ptrCast(&SimpleVertexBinary),
+    }, null);
+
+    self.frag_shader_module = try self.device.createShaderModule(&.{
+        .code_size = SimpleFragmentBinary.len,
+        .p_code = @ptrCast(&SimpleFragmentBinary),
+    }, null);
 }
 
 pub fn deinit(self: *Self) void {
+    self.device.destroyShaderModule(self.frag_shader_module, null);
+    self.device.destroyShaderModule(self.vert_shader_module, null);
+
     for (self.swap_chain_image_views) |img_view| {
         self.device.destroyImageView(img_view, null);
     }

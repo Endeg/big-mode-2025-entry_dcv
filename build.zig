@@ -2,9 +2,9 @@ const std = @import("std");
 
 fn raylibModule(
     b: *std.Build,
-    target: std.Build.ResolvedTarget,
+    target: std.Build.resolvedTarget,
     optimize: std.builtin.OptimizeMode,
-) *std.Build.Module {
+) *std.Build.module {
     const raylib_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
