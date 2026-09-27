@@ -29,10 +29,10 @@ pub fn init() SpriteManager {
 
         const image = rl.LoadImageFromMemory(".png", file_data.ptr, @intCast(file_data.len));
         defer rl.UnloadImage(image);
-        log.debug("image = {any}.", .{image});
+        if (false) log.debug("image = {any}.", .{image});
 
         const texture = rl.LoadTextureFromImage(image);
-        log.debug("texture = {any}.", .{texture});
+        if (false) log.debug("texture = {any}.", .{texture});
         textures.set(texture_asset, texture);
     }
 
@@ -44,7 +44,7 @@ pub fn init() SpriteManager {
         const sprite_info = SpriteInfos.get(sprite_handle);
 
         sprite.texture = textures.get(sprite_info.texture);
-        log.debug("texture = {any}.", .{sprite.texture});
+        if (false) log.debug("texture = {any}.", .{sprite.texture});
         if (sprite_info.source) |provided_source| {
             sprite.source = provided_source;
         } else {

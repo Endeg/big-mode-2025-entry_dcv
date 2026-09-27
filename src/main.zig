@@ -868,7 +868,8 @@ pub fn main(init: std.process.Init) !void {
         };
     }
 
-    while (!rl.WindowShouldClose()) {
+    while (!window.shouldClose()) {
+        glfw.pollEvents();
         frame_messages.clearRetainingCapacity();
         _ = frame_arena.reset(.retain_capacity);
 
@@ -944,6 +945,7 @@ pub fn main(init: std.process.Init) !void {
         );
         cleanupEntities(&entity_manager);
         render(&entity_manager, &sprite_manager, input, config);
+        try gfx.tempFrame();
 
         frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
             frame_allocator,

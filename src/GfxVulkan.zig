@@ -17,10 +17,21 @@ memory_properties: vk.PhysicalDeviceMemoryProperties = undefined,
 swap_chain: vk.SwapchainKHR = undefined,
 swap_chain_extent: vk.Extent2D = undefined,
 swap_chain_images: [2]vk.Image = undefined,
+swap_chain_framebuffers: [2]vk.Framebuffer = undefined,
 swap_chain_image_views: [2]vk.ImageView = undefined,
 swap_chain_format: vk.Format = undefined,
 vert_shader_module: vk.ShaderModule = undefined,
 frag_shader_module: vk.ShaderModule = undefined,
+viewport: vk.Viewport = undefined,
+scissor: vk.Rect2D = undefined,
+pipeline_layout: vk.PipelineLayout = undefined,
+render_pass: vk.RenderPass = undefined,
+pipeline: vk.Pipeline = undefined,
+command_pool: vk.CommandPool = undefined,
+command_buffer: vk.CommandBuffer = undefined,
+image_available_semaphore: vk.Semaphore = undefined,
+render_finished_semaphore: vk.Semaphore = undefined,
+in_flight_fence: vk.Fence = undefined,
 
 intermediate: struct {
     vkb: vk.BaseWrapper,
@@ -62,18 +73,16 @@ pub fn init(self: *Self, arena: std.mem.Allocator, window: *glfw.Window) !void {
 
     var extension_names: std.ArrayListUnmanaged([*:0]const u8) = .empty;
     const glfw_exts = try glfw.getRequiredInstanceExtensions();
-    try extension_names.ensureTotalCapacity(arena, glfw_exts.len + 3);
+    try extension_names.ensureTotalCapacity(arena, glfw_exts.len + 4);
 
     extension_names.appendAssumeCapacity(vk.extensions.ext_debug_utils.name);
     if (builtin.os.tag == .macos) {
         // the following extensions are to support vulkan in mac os
         // see https://github.com/glfw/glfw/issues/2335
         extension_names.appendAssumeCapacity(vk.extensions.khr_portability_enumeration.name);
-        extension_names.appendAssumeCapacity(vk.extensions
-            .khr_get_physical_device_properties_2.name);
+        extension_names.appendAssumeCapacity(vk.extensions.khr_get_physical_device_properties_2.name);
     }
     extension_names.appendSliceAssumeCapacity(glfw_exts);
-
     for (extension_names.items) |requested_extension| {
         log.debug("Requested extension: `{s}`.", .{requested_extension});
     }
@@ -182,7 +191,19 @@ pub fn init(self: *Self, arena: std.mem.Allocator, window: *glfw.Window) !void {
 
         const queue_count: u32 = if (graphics_queue_index == present_queue_index) 1 else 2;
 
-        const RequiredDeviceExtensions = [_][*:0]const u8{vk.extensions.khr_swapchain.name};
+        const RequiredDeviceExtensions = [_][*:0]const u8{
+            vk.extensions.khr_swapchain.name,
+
+            // TODO: fix error: [validation] vkCreateRenderPass():
+            // pCreateInfo->pSubpasses[0].pColorAttachments[0] is VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL
+            // (and synchronization2 was not enabled).
+            // The Vulkan spec states: If the synchronization2 feature is not enabled, layout must
+            // not be VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR or VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL_KHR
+            // (https://vulkan.lunarg.com/doc/view/1.4.321.1/windows/antora/spec/latest/chapters/renderpass.html#VUID-VkAttachmentReference-synchronization2-06910).
+            // Is this the one? Having this extension here doesn't help,
+            // perhaps there's something else.
+            vk.extensions.khr_synchronization_2.name,
+        };
 
         const device = try self.instance.createDevice(physical_device, &.{
             .queue_create_info_count = queue_count,
@@ -310,16 +331,340 @@ pub fn init(self: *Self, arena: std.mem.Allocator, window: *glfw.Window) !void {
 
     self.vert_shader_module = try self.device.createShaderModule(&.{
         .code_size = SimpleVertexBinary.len,
-        .p_code = @ptrCast(&SimpleVertexBinary),
+        .p_code = @ptrCast(@alignCast(&SimpleVertexBinary[0])),
     }, null);
 
     self.frag_shader_module = try self.device.createShaderModule(&.{
         .code_size = SimpleFragmentBinary.len,
-        .p_code = @ptrCast(&SimpleFragmentBinary),
+        .p_code = @ptrCast(@alignCast(&SimpleFragmentBinary[0])),
     }, null);
+
+    {
+        const vertex_shader_stage_info: vk.PipelineShaderStageCreateInfo = .{
+            .stage = .{ .vertex_bit = true },
+            .module = self.vert_shader_module,
+            .p_name = "main",
+        };
+        const fragment_shader_stage_info: vk.PipelineShaderStageCreateInfo = .{
+            .stage = .{ .fragment_bit = true },
+            .module = self.frag_shader_module,
+            .p_name = "main",
+        };
+
+        const shader_stages = .{ vertex_shader_stage_info, fragment_shader_stage_info };
+        const dynamic_states = [_]vk.DynamicState{
+            vk.DynamicState.viewport,
+            vk.DynamicState.scissor,
+        };
+        const dynamic_state_info: vk.PipelineDynamicStateCreateInfo = .{
+            .dynamic_state_count = dynamic_states.len,
+            .p_dynamic_states = @ptrCast(&dynamic_states),
+        };
+
+        const vertex_input_info: vk.PipelineVertexInputStateCreateInfo = .{
+            .vertex_binding_description_count = 0,
+            .p_vertex_binding_descriptions = null,
+            .vertex_attribute_description_count = 0,
+            .p_vertex_attribute_descriptions = null,
+        };
+
+        const input_assembly: vk.PipelineInputAssemblyStateCreateInfo = .{
+            .topology = .triangle_list,
+            .primitive_restart_enable = .false,
+        };
+
+        self.viewport = .{
+            .x = 0,
+            .y = 0,
+            .width = @floatFromInt(self.swap_chain_extent.width),
+            .height = @floatFromInt(self.swap_chain_extent.height),
+            .min_depth = 0,
+            .max_depth = 1,
+        };
+
+        self.scissor = .{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = self.swap_chain_extent,
+        };
+
+        const viewport_state_info: vk.PipelineViewportStateCreateInfo = .{
+            .viewport_count = 1,
+            .p_viewports = @ptrCast(&self.viewport),
+            .scissor_count = 1,
+            .p_scissors = @ptrCast(&self.scissor),
+        };
+        const rasterization_state_info: vk.PipelineRasterizationStateCreateInfo = .{
+            .depth_clamp_enable = .false,
+            .rasterizer_discard_enable = .false,
+            .polygon_mode = .fill,
+            .line_width = 1,
+            .cull_mode = .{ .back_bit = true },
+            .front_face = .clockwise,
+            .depth_bias_enable = .false,
+            .depth_bias_constant_factor = 0,
+            .depth_bias_clamp = 0,
+            .depth_bias_slope_factor = 0,
+        };
+
+        const multisample_state_info: vk.PipelineMultisampleStateCreateInfo = .{
+            .sample_shading_enable = .false,
+            .rasterization_samples = .{ .@"1_bit" = true },
+            .min_sample_shading = 1,
+            .p_sample_mask = null,
+            .alpha_to_coverage_enable = .false,
+            .alpha_to_one_enable = .false,
+        };
+
+        const color_blend_attachment_state: vk.PipelineColorBlendAttachmentState = .{
+            .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
+            .blend_enable = .false,
+            .src_color_blend_factor = .one,
+            .dst_color_blend_factor = .zero,
+            .color_blend_op = .add,
+            .src_alpha_blend_factor = .one,
+            .dst_alpha_blend_factor = .zero,
+            .alpha_blend_op = .add,
+
+            // Regular blend from alpha-channel
+            // .blend_enable = .true,
+            // .src_color_blend_factor = .src_alpha,
+            // .dst_color_blend_factor = .one_minus_src_alpha,
+            // .color_blend_op = .add,
+            // .src_alpha_blend_factor = .one,
+            // .dst_alpha_blend_factor = .zero,
+            // .alpha_blend_op = .add,
+        };
+
+        const color_blend_state_info: vk.PipelineColorBlendStateCreateInfo = .{
+            .logic_op_enable = .false, //.true,
+            .logic_op = .copy,
+            .attachment_count = 1,
+            .p_attachments = @ptrCast(&color_blend_attachment_state),
+            .blend_constants = @splat(0),
+        };
+
+        const pipeline_layout_info: vk.PipelineLayoutCreateInfo = .{
+            .set_layout_count = 0,
+            .p_set_layouts = null,
+            .push_constant_range_count = 0,
+            .p_push_constant_ranges = null,
+        };
+
+        self.pipeline_layout = try self.device.createPipelineLayout(&pipeline_layout_info, null);
+
+        const color_attachment: vk.AttachmentDescription = .{
+            .format = self.swap_chain_format,
+            .samples = .{ .@"1_bit" = true },
+            .load_op = .clear,
+            .store_op = .store,
+            .stencil_load_op = .dont_care,
+            .stencil_store_op = .dont_care,
+            .initial_layout = .undefined,
+            .final_layout = .present_src_khr,
+        };
+
+        const color_attachment_ref: vk.AttachmentReference = .{
+            .attachment = 0,
+            .layout = .color_attachment_optimal, //.attachment_optimal,
+        };
+
+        const subpass: vk.SubpassDescription = .{
+            .pipeline_bind_point = .graphics,
+            .color_attachment_count = 1,
+            // From Vulkan Tutorial: The index of the attachment in this array
+            // is directly referenced from the fragment shader with the
+            // `layout(location = 0)out vec4 outColor` directive!
+            .p_color_attachments = @ptrCast(&color_attachment_ref),
+        };
+
+        const render_pass_dependency: vk.SubpassDependency = .{
+            .src_subpass = vk.SUBPASS_EXTERNAL,
+            .dst_subpass = 0,
+            .src_stage_mask = .{ .color_attachment_output_bit = true },
+            .src_access_mask = .{},
+            .dst_stage_mask = .{ .color_attachment_output_bit = true },
+            .dst_access_mask = .{ .color_attachment_write_bit = true },
+        };
+
+        const render_pass_info: vk.RenderPassCreateInfo = .{
+            .attachment_count = 1,
+            .p_attachments = @ptrCast(&color_attachment),
+            .subpass_count = 1,
+            .p_subpasses = @ptrCast(&subpass),
+            .dependency_count = 1,
+            .p_dependencies = &.{render_pass_dependency},
+        };
+
+        self.render_pass = try self.device.createRenderPass(&render_pass_info, null);
+        const pipeline_info: vk.GraphicsPipelineCreateInfo = .{
+            .stage_count = shader_stages.len,
+            .p_stages = @ptrCast(&shader_stages),
+            .p_vertex_input_state = &vertex_input_info,
+            .p_input_assembly_state = &input_assembly,
+            .p_viewport_state = &viewport_state_info,
+            .p_rasterization_state = &rasterization_state_info,
+
+            .p_multisample_state = &multisample_state_info,
+            .p_depth_stencil_state = null,
+            .p_color_blend_state = &color_blend_state_info,
+            .p_dynamic_state = &dynamic_state_info,
+            .layout = self.pipeline_layout,
+            .render_pass = self.render_pass,
+            .subpass = 0,
+            .base_pipeline_handle = .null_handle,
+            .base_pipeline_index = -1,
+        };
+
+        var target_pipeline_handles: [1]vk.Pipeline = undefined;
+        const res = try self.device.createGraphicsPipelines(.null_handle, &.{pipeline_info}, null, target_pipeline_handles[0..]);
+        assert(res == .success);
+        self.pipeline = target_pipeline_handles[0];
+    }
+
+    {
+        for (self.swap_chain_image_views, 0..) |_, i| {
+            const framebuffer_info: vk.FramebufferCreateInfo = .{
+                .render_pass = self.render_pass,
+                .attachment_count = 1,
+                .p_attachments = @ptrCast(&self.swap_chain_image_views[i]),
+                .width = self.swap_chain_extent.width,
+                .height = self.swap_chain_extent.height,
+                .layers = 1,
+            };
+
+            self.swap_chain_framebuffers[i] = try self.device.createFramebuffer(&framebuffer_info, null);
+        }
+    }
+    {
+        const command_pool_info: vk.CommandPoolCreateInfo = .{
+            .flags = .{ .reset_command_buffer_bit = true },
+            .queue_family_index = graphics_queue_index,
+        };
+
+        self.command_pool = try self.device.createCommandPool(&command_pool_info, null);
+    }
+
+    {
+        const command_buffer_info: vk.CommandBufferAllocateInfo = .{
+            .command_pool = self.command_pool,
+            .level = .primary,
+            .command_buffer_count = 1,
+        };
+        try self.device.allocateCommandBuffers(&command_buffer_info, @ptrCast(&self.command_buffer));
+    }
+
+    {
+        const semaphore_info: vk.SemaphoreCreateInfo = .{};
+        const fence_info: vk.FenceCreateInfo = .{
+            .flags = .{ .signaled_bit = true },
+        };
+
+        self.image_available_semaphore = try self.device.createSemaphore(&semaphore_info, null);
+        self.render_finished_semaphore = try self.device.createSemaphore(&semaphore_info, null);
+        self.in_flight_fence = try self.device.createFence(&fence_info, null);
+    }
+}
+
+pub fn tempFrame(self: *Self) !void {
+    const MaxTimeout = 200000000; // std.math.maxInt(u64);
+    const wait_for_fences_result = try self.device.waitForFences(&.{self.in_flight_fence}, .true, MaxTimeout);
+    log.debug("wait_for_fences_result = {any}", .{wait_for_fences_result});
+    assert(wait_for_fences_result == .success);
+    try self.device.resetFences(&.{self.in_flight_fence});
+
+    const next_image_result = try self.device.acquireNextImageKHR(
+        self.swap_chain,
+        MaxTimeout,
+        self.image_available_semaphore,
+        .null_handle,
+    );
+    assert(next_image_result.result == .success);
+
+    const image_index = next_image_result.image_index;
+    log.debug("image_index = {d}", .{image_index});
+
+    try self.device.resetCommandBuffer(self.command_buffer, .{});
+
+    {
+        try self.device.beginCommandBuffer(self.command_buffer, &.{});
+
+        const clear_color: vk.ClearValue = .{
+            .color = .{ .float_32 = .{ 0, 0, 0, 1 } },
+        };
+
+        const render_pass_info: vk.RenderPassBeginInfo = .{
+            .render_pass = self.render_pass,
+            .framebuffer = self.swap_chain_framebuffers[image_index],
+            .render_area = .{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = self.swap_chain_extent,
+            },
+            .clear_value_count = 1,
+            .p_clear_values = @ptrCast(&clear_color),
+        };
+
+        self.device.cmdBeginRenderPass(self.command_buffer, &render_pass_info, .@"inline");
+        self.device.cmdBindPipeline(self.command_buffer, .graphics, self.pipeline);
+        self.device.cmdSetViewport(self.command_buffer, 0, &.{self.viewport});
+        self.device.cmdSetScissor(self.command_buffer, 0, &.{self.scissor});
+        self.device.cmdDraw(self.command_buffer, 3, 1, 0, 0);
+        self.device.cmdEndRenderPass(self.command_buffer);
+
+        try self.device.endCommandBuffer(self.command_buffer);
+    }
+
+    {
+        const submit_info: vk.SubmitInfo = .{
+            .wait_semaphore_count = 1,
+            .p_wait_semaphores = &.{
+                self.image_available_semaphore,
+            },
+            .p_wait_dst_stage_mask = &.{
+                .{ .color_attachment_output_bit = true },
+            },
+            .command_buffer_count = 1,
+            .p_command_buffers = &.{self.command_buffer},
+            .signal_semaphore_count = 1,
+            .p_signal_semaphores = &.{self.render_finished_semaphore},
+        };
+
+        try self.device.queueSubmit(self.queue.graphics, &.{submit_info}, self.in_flight_fence);
+    }
+
+    {
+        const present_info: vk.PresentInfoKHR = .{
+            .wait_semaphore_count = 1,
+            .p_wait_semaphores = &.{self.render_finished_semaphore},
+
+            .swapchain_count = 1,
+            .p_swapchains = &.{self.swap_chain},
+            .p_image_indices = &.{image_index},
+        };
+
+        const present_result = try self.device.queuePresentKHR(self.queue.present, &present_info);
+        assert(present_result == .success);
+    }
 }
 
 pub fn deinit(self: *Self) void {
+    self.device.deviceWaitIdle() catch |err| {
+        log.err("vulkan deviceWaitIdle problem: {s}.", .{@errorName(err)});
+        unreachable;
+    };
+
+    self.device.destroyFence(self.in_flight_fence, null);
+    self.device.destroySemaphore(self.render_finished_semaphore, null);
+    self.device.destroySemaphore(self.image_available_semaphore, null);
+
+    self.device.destroyCommandPool(self.command_pool, null);
+    for (self.swap_chain_framebuffers) |framebuffer| {
+        self.device.destroyFramebuffer(framebuffer, null);
+    }
+
+    self.device.destroyPipeline(self.pipeline, null);
+    self.device.destroyRenderPass(self.render_pass, null);
+    self.device.destroyPipelineLayout(self.pipeline_layout, null);
+
     self.device.destroyShaderModule(self.frag_shader_module, null);
     self.device.destroyShaderModule(self.vert_shader_module, null);
 
@@ -357,8 +702,7 @@ fn debugUtilsMessengerCallback(severity: vk.DebugUtilsMessageSeverityFlagsEXT, m
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
+const builtin = @import("builtin");
 
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
-
-const builtin = @import("builtin");

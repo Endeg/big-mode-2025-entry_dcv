@@ -360,11 +360,11 @@ pub fn DrawTexturePro(texture: Texture2D, source: Rectangle, dest: Rectangle, or
 }
 
 pub fn BeginDrawing() void {
-    log.debug("{s}()", .{@src().fn_name});
+    if (false) log.debug("{s}()", .{@src().fn_name});
 }
 
 pub fn EndDrawing() void {
-    log.debug("{s}()", .{@src().fn_name});
+    if (false) log.debug("{s}()", .{@src().fn_name});
 }
 
 pub fn BeginMode2D(camera: Camera2D) void {
