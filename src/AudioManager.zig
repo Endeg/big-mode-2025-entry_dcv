@@ -1,17 +1,17 @@
-const AudioManager = @This();
-
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
 const rl = @import("raylib_stub.zig");
 
+const AudioManager = @This();
+
 sounds: std.EnumArray(AudioAsset, rl.Sound),
 
 pub fn init() AudioManager {
     var sounds = std.EnumArray(AudioAsset, rl.Sound).initUndefined();
-    inline for (@typeInfo(AudioAsset).@"enum".fields) |audio_asset_field| {
-        const audio_asset: AudioAsset = @enumFromInt(audio_asset_field.value);
+    inline for (@typeInfo(AudioAsset).@"enum".field_values) |audio_asset_field_value| {
+        const audio_asset: AudioAsset = @fromBackingInt(@intCast(audio_asset_field_value));
         const wave_data = AudioAssets.get(audio_asset);
 
         const wave = rl.LoadWaveFromMemory(".wav", wave_data.ptr, @intCast(wave_data.len));

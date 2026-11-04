@@ -1,10 +1,10 @@
-const SpriteManager = @This();
-
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
 const rl = @import("raylib_stub.zig");
+
+const SpriteManager = @This();
 
 const Error = error{
     malformed_sprites_json,
@@ -22,8 +22,8 @@ pub const Sprite = struct {
 
 pub fn init() SpriteManager {
     var textures = std.EnumArray(TextureAsset, rl.Texture2D).initUndefined();
-    inline for (@typeInfo(TextureAsset).@"enum".fields) |texture_asset_field| {
-        const texture_asset: TextureAsset = @enumFromInt(texture_asset_field.value);
+    inline for (@typeInfo(TextureAsset).@"enum".field_values) |texture_asset_field_value| {
+        const texture_asset: TextureAsset = @fromBackingInt(@intCast(texture_asset_field_value));
 
         const file_data = TextureAssets.get(texture_asset);
 
@@ -37,8 +37,8 @@ pub fn init() SpriteManager {
     }
 
     var sprites = std.EnumArray(SpriteHandle, Sprite).initUndefined();
-    inline for (@typeInfo(SpriteHandle).@"enum".fields) |sprite_handle_field| {
-        const sprite_handle: SpriteHandle = @enumFromInt(sprite_handle_field.value);
+    inline for (@typeInfo(SpriteHandle).@"enum".field_values) |sprite_handle_field_value| {
+        const sprite_handle: SpriteHandle = @fromBackingInt(@intCast(sprite_handle_field_value));
         var sprite: Sprite = undefined;
 
         const sprite_info = SpriteInfos.get(sprite_handle);

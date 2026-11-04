@@ -1,12 +1,23 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
+const BuildMode = @import("builtin").mode;
 
-const rl = @import("raylib_stub.zig");
+const sokol = @import("sokol");
+const slog = sokol.log;
+const sg = sokol.gfx;
+const sapp = sokol.app;
+const sglue = sokol.glue;
 
-const util = @import("util.zig");
-
+const AudioManager = @import("AudioManager.zig");
+const EntityManager = @import("entity.zig").EntityManager;
+const GigaEntity = @import("entity.zig").GigaEntity;
 const GlobalConfig = @import("GlobalConfig.zig");
+const rl = @import("raylib_stub.zig");
+const SpriteManager = @import("SpriteManager.zig");
+const Sprite = SpriteManager.Sprite;
+const SpriteHandle = SpriteManager.SpriteHandle;
+const util = @import("util.zig");
 
 //TODO: GPA allocator: dupeZ/free - possible bug
 
@@ -24,15 +35,6 @@ const GlobalConfig = @import("GlobalConfig.zig");
 //         5. Blaster animation, use cooldown timer.
 //        +6. Trees, bushes and roads to have background.
 // TODO: Gamepad support
-
-const EntityManager = @import("entity.zig").EntityManager;
-const GigaEntity = @import("entity.zig").GigaEntity;
-
-const SpriteManager = @import("SpriteManager.zig");
-const Sprite = SpriteManager.Sprite;
-const SpriteHandle = SpriteManager.SpriteHandle;
-
-const AudioManager = @import("AudioManager.zig");
 
 fn drawSprite(
     sprite: *const Sprite,
@@ -83,7 +85,7 @@ const GameManager = struct {
 
     const GuyAwardScore = 200;
 
-    pub fn reset(self: *Self, entity_manager: *EntityManager, audio_manager: AudioManager, io: std.Io) void {
+    pub fn reset(self: *Self, io: std.Io) void {
         const now_ms = std.Io.Clock.now(std.Io.Clock.real, io).toMilliseconds();
         self.* = Self{};
         self.game_prng = std.Random.DefaultPrng.init(@intCast(now_ms));
@@ -95,7 +97,7 @@ const GameManager = struct {
         audio_manager.play(.NewGame);
     }
 
-    pub fn playerFell(self: *Self, audio_manager: AudioManager) void {
+    pub fn playerFell(self: *Self) void {
         if (self.guys_count == 0) {
             audio_manager.play(.GameOver);
             self.state = .GameOver;
@@ -109,7 +111,7 @@ const GameManager = struct {
         }
     }
 
-    pub fn respawnPlayer(self: *Self, entity_manager: *EntityManager, audio_manager: AudioManager) void {
+    pub fn respawnPlayer(self: *Self) void {
         self.player_handle = entity_manager.createEntity(GigaEntity.player(.{ .x = 0, .y = 0 }));
         self.state = .Playing;
         audio_manager.play(.Respawn);
@@ -118,7 +120,6 @@ const GameManager = struct {
     pub fn update(
         self: *Self,
         input: Input,
-        em: *EntityManager,
     ) void {
         if (self.state == .RespawnScreen) {
             self.respawn_time = @max(self.respawn_time - input.dt, 0);
@@ -139,14 +140,14 @@ const GameManager = struct {
             }
 
             if (self.enemies_count < self.target_enemies_count) {
-                self.spawnSupostat(self.player_handle, em);
+                self.spawnSupostat(self.player_handle);
             }
 
             self.battery_spawn_time = @max(self.battery_spawn_time - input.dt, 0);
             if (self.battery_spawn_time <= 0) {
                 self.battery_spawn_time = BatterySpawnTimeout;
 
-                self.spawnBattery(self.player_handle, em);
+                self.spawnBattery(self.player_handle);
             }
         }
     }
@@ -154,7 +155,6 @@ const GameManager = struct {
     pub fn spawnSupostat(
         self: *Self,
         player_handle: EntityManager.Handle,
-        entity_manager: *EntityManager,
     ) void {
         if (entity_manager.entityField(player_handle, .position)) |player_position| {
             const DistanceMin: f32 = 300;
@@ -191,7 +191,6 @@ const GameManager = struct {
     pub fn spawnBattery(
         self: *Self,
         player_handle: EntityManager.Handle,
-        entity_manager: *EntityManager,
     ) void {
         if (entity_manager.entityField(player_handle, .position)) |player_position| {
             if (self.battery_count < self.max_batteries_count) {
@@ -214,7 +213,7 @@ const GameManager = struct {
         }
     }
 
-    pub fn batteryPickedUp(self: *Self, audio_manager: AudioManager) void {
+    pub fn batteryPickedUp(self: *Self) void {
         audio_manager.play(.Pickup);
         if (self.battery_count > 0) {
             self.battery_count -= 1;
@@ -245,7 +244,7 @@ fn integratePhysics(
     acceleration: *rl.Vector2,
     velocity: *rl.Vector2,
     input: Input,
-    config: EntityPhysicsConfig,
+    entity_physics_config: EntityPhysicsConfig,
 ) !void {
     if (rl.Vector2Length(velocity.*) > 0 and rl.Vector2Length(acceleration.*) > 0) {
         // Decrease velocity if direction was changed
@@ -253,7 +252,7 @@ fn integratePhysics(
         const acc_norm = rl.Vector2Normalize(acceleration.*);
         const dot_product = rl.Vector2DotProduct(vel_norm, acc_norm);
         if (dot_product < 0) {
-            velocity.* = rl.Vector2Subtract(velocity.*, rl.Vector2Scale(velocity.*, (1 - config.damping) * @abs(dot_product) * input.dt / config.mass));
+            velocity.* = rl.Vector2Subtract(velocity.*, rl.Vector2Scale(velocity.*, (1 - entity_physics_config.damping) * @abs(dot_product) * input.dt / entity_physics_config.mass));
         }
     }
     if (BuggyPhysicsIntegration) {
@@ -265,10 +264,10 @@ fn integratePhysics(
     }
 
     if (rl.Vector2Length(acceleration.*) == 0) {
-        velocity.* = rl.Vector2Scale(velocity.*, config.damping);
+        velocity.* = rl.Vector2Scale(velocity.*, entity_physics_config.damping);
     }
 
-    velocity.* = rl.Vector2ClampValue(velocity.*, 0, config.max_velocity);
+    velocity.* = rl.Vector2ClampValue(velocity.*, 0, entity_physics_config.max_velocity);
 
     position.* = rl.Vector2Add(position.*, rl.Vector2Scale(velocity.*, input.dt));
 }
@@ -285,28 +284,23 @@ pub fn determineDirection(up: bool, down: bool, left: bool, right: bool) rl.Vect
 }
 
 fn update(
-    em: *EntityManager,
     input: Input,
-    config: GlobalConfig,
-    frame_messages: *std.ArrayList([]const u8),
-    frame_allocator: std.mem.Allocator,
     player_position: ?rl.Vector2,
-    audio_manager: AudioManager,
 ) !void {
     var i: usize = 0;
-    while (i < em.entities.len) : (i += 1) {
-        const flags = em.entities.items(.flags);
-        const position = em.entities.items(.position);
-        const acceleration = em.entities.items(.acceleration);
-        const velocity = em.entities.items(.velocity);
-        const shoot_info = em.entities.items(.shoot_info);
-        const ttl = em.entities.items(.ttl);
-        const enemy_behavior = em.entities.items(.enemy_behavior);
-        const damage_animation = em.entities.items(.damage_animation);
-        const iframes = em.entities.items(.iframes);
-        const hop_value = em.entities.items(.hop_value);
-        const above_ground_value = em.entities.items(.above_ground_value);
-        const energy = em.entities.items(.energy);
+    while (i < entity_manager.entities.len) : (i += 1) {
+        const flags = entity_manager.entities.items(.flags);
+        const position = entity_manager.entities.items(.position);
+        const acceleration = entity_manager.entities.items(.acceleration);
+        const velocity = entity_manager.entities.items(.velocity);
+        const shoot_info = entity_manager.entities.items(.shoot_info);
+        const ttl = entity_manager.entities.items(.ttl);
+        const enemy_behavior = entity_manager.entities.items(.enemy_behavior);
+        const damage_animation = entity_manager.entities.items(.damage_animation);
+        const iframes = entity_manager.entities.items(.iframes);
+        const hop_value = entity_manager.entities.items(.hop_value);
+        const above_ground_value = entity_manager.entities.items(.above_ground_value);
+        const energy = entity_manager.entities.items(.energy);
 
         //TODO: Proper units: e.g. 16px - 1 meter or something.
 
@@ -470,7 +464,7 @@ fn update(
                     ),
                 );
 
-                _ = em.createEntity(GigaEntity.projectile(
+                _ = entity_manager.createEntity(GigaEntity.projectile(
                     shoot_start_position,
                     rl.Vector2Scale(shoot_direction, config.player_projectile_acceleration_magnitude),
                     config.player_projectile_ttl,
@@ -522,17 +516,17 @@ fn update(
     }
 
     i = 0;
-    while (i < em.entities.len) : (i += 1) {
-        const flags = em.entities.items(.flags);
-        const position = em.entities.items(.position);
-        const velocity = em.entities.items(.velocity);
-        const health = em.entities.items(.health);
-        const damage_animation = em.entities.items(.damage_animation);
-        const iframes = em.entities.items(.iframes);
-        const above_ground_value = em.entities.items(.above_ground_value);
-        const energy = em.entities.items(.energy);
+    while (i < entity_manager.entities.len) : (i += 1) {
+        const flags = entity_manager.entities.items(.flags);
+        const position = entity_manager.entities.items(.position);
+        const velocity = entity_manager.entities.items(.velocity);
+        const health = entity_manager.entities.items(.health);
+        const damage_animation = entity_manager.entities.items(.damage_animation);
+        const iframes = entity_manager.entities.items(.iframes);
+        const above_ground_value = entity_manager.entities.items(.above_ground_value);
+        const energy = entity_manager.entities.items(.energy);
         var j: usize = 0;
-        while (j < em.entities.len) : (j += 1) {
+        while (j < entity_manager.entities.len) : (j += 1) {
             if (i != j and flags[i].alive and flags[i].collideable) {
                 if (flags[i].class == .Player and flags[j].class == .Battery and flags[j].alive) {
                     const real_position_p = rl.Vector2Add(rl.Vector2Add(position[i], .{ .y = -above_ground_value[i] }), .{ .y = -config.general_center_from_bottom });
@@ -542,7 +536,7 @@ fn update(
                         rl.DrawCircleV(real_position_b, config.general_radius, rl.YELLOW);
                     }
                     if (rl.Vector2Distance(real_position_p, real_position_b) <= config.general_radius * 2) {
-                        game_manager.batteryPickedUp(audio_manager);
+                        game_manager.batteryPickedUp();
 
                         energy[i] = std.math.clamp(energy[i] + config.battery_energy_amount, 0, GigaEntity.MaxEnergy);
                         flags[j].alive = false;
@@ -589,7 +583,7 @@ fn update(
                             if (health[j] <= 0) {
                                 flags[j].alive = false;
 
-                                game_manager.playerFell(audio_manager);
+                                game_manager.playerFell();
                                 //TODO: Death animation
                             }
                         }
@@ -603,7 +597,7 @@ fn update(
 const ArenaWidth = 100 * 16;
 const ArenaHeight = 100 * 16;
 
-fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalConfig) void {
+fn render(input: Input) void {
     rl.DrawRectangle(-ArenaWidth * 0.5, -ArenaHeight * 0.5, 1, ArenaHeight, rl.GRAY);
     rl.DrawRectangle(ArenaWidth * 0.5, -ArenaHeight * 0.5, 1, ArenaHeight, rl.GRAY);
 
@@ -628,7 +622,7 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
                     const final_color = rl.ColorFromHSV(hsv.x, hsv.y, hsv.z);
 
                     drawSprite(
-                        sm.get(DecorSprites[decor_index]),
+                        sprite_manager.get(DecorSprites[decor_index]),
                         .{ .x = x + frame_rng.floatExp(f32) * 8 - 4, .y = y + frame_rng.floatExp(f32) * 8 - 4 },
                         0,
                         final_color,
@@ -638,17 +632,17 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
         }
     }
 
-    inline for (@typeInfo(GigaEntity.Layer).@"enum".fields) |layer_field| {
-        const current_layer: GigaEntity.Layer = @enumFromInt(layer_field.value);
+    inline for (@typeInfo(GigaEntity.Layer).@"enum".field_values) |layer_field_value| {
+        const current_layer: GigaEntity.Layer = @fromBackingInt(@intCast(layer_field_value));
         var i: usize = 0;
-        while (i < em.entities.len) : (i += 1) {
-            const flags = em.entities.items(.flags);
-            const position = em.entities.items(.position);
-            const tint = em.entities.items(.tint);
-            const damage_animation = em.entities.items(.damage_animation);
-            const layer = em.entities.items(.layer);
-            const above_ground_value = em.entities.items(.above_ground_value);
-            const iframes = em.entities.items(.iframes);
+        while (i < entity_manager.entities.len) : (i += 1) {
+            const flags = entity_manager.entities.items(.flags);
+            const position = entity_manager.entities.items(.position);
+            const tint = entity_manager.entities.items(.tint);
+            const damage_animation = entity_manager.entities.items(.damage_animation);
+            const layer = entity_manager.entities.items(.layer);
+            const above_ground_value = entity_manager.entities.items(.above_ground_value);
+            const iframes = entity_manager.entities.items(.iframes);
             if (flags[i].visual and current_layer == layer[i]) {
                 if (flags[i].class == .Player) {
                     if (iframes[i] > 0) {
@@ -659,12 +653,12 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
 
                     if (iframe_blink) {
                         const final_position = rl.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
-                        const player_sprite = sm.get(.Player);
+                        const player_sprite = sprite_manager.get(.Player);
                         {
                             const final_tint = rl.ColorLerp(tint[i], rl.WHITE, damage_animation[i]);
                             drawSprite(player_sprite, final_position, 0, final_tint);
                         }
-                        const blaster_sprite = sm.get(.Blaster);
+                        const blaster_sprite = sprite_manager.get(.Blaster);
 
                         const is_shooting = input.shoot_up or input.shoot_down or input.shoot_left or input.shoot_right;
                         if (is_shooting) {
@@ -731,15 +725,15 @@ fn render(em: *EntityManager, sm: *SpriteManager, input: Input, config: GlobalCo
                         }
                     }
                 } else if (flags[i].class == .Battery) {
-                    const battery_sprite = sm.get(.Battery);
+                    const battery_sprite = sprite_manager.get(.Battery);
                     drawSprite(battery_sprite, position[i], 0, tint[i]);
                 } else if (flags[i].class == .Projectile) {
-                    const projectile_sprite = sm.get(.Projectile);
+                    const projectile_sprite = sprite_manager.get(.Projectile);
                     drawSprite(projectile_sprite, position[i], 0, tint[i]);
                 } else if (flags[i].class == .Supostat) {
                     const final_position = rl.Vector2Add(position[i], .{ .y = -above_ground_value[i] });
                     const final_tint = rl.ColorLerp(tint[i], rl.WHITE, damage_animation[i]);
-                    const monster_sprite = sm.get(.Enemy0);
+                    const monster_sprite = sprite_manager.get(.Enemy0);
                     drawSprite(monster_sprite, final_position, 0, final_tint);
                 }
             }
@@ -804,16 +798,41 @@ fn drawBatteryIcon(zoomed_screen_width: f32, energy: f32) void {
     );
 }
 
-const Release = @import("builtin").mode == .ReleaseFast;
+const Release = BuildMode == .fast or BuildMode == .safe;
 
 var game_manager = GameManager{};
+
+// init_cb: ?*const fn () callconv(.c) void = null,
+// frame_cb: ?*const fn () callconv(.c) void = null,
+// cleanup_cb: ?*const fn () callconv(.c) void = null,
+// event_cb: ?*const fn ([*c]const Event) callconv(.c) void = null,
+
+var config_watcher: util.FileWatcher = undefined;
+var audio_manager: AudioManager = undefined;
+var sprite_manager: SpriteManager = undefined;
+var entity_manager: EntityManager = undefined;
+var config: GlobalConfig = .{};
+var frame_messages: std.ArrayList([]const u8) = .empty;
+var frame_memory: [1 * 1024 * 1024]u8 = undefined;
+var frame_fba: std.heap.FixedBufferAllocator = undefined;
+var frame_arena: std.heap.ArenaAllocator = undefined;
+var frame_allocator: std.mem.Allocator = undefined;
+
+fn onInit() callconv(.c) void {}
+
+fn onFrame() callconv(.c) void {}
+
+fn onCleanup() callconv(.c) void {}
+
+fn onEvent(event: [*c]const sapp.Event) callconv(.c) void {
+    _ = event; // autofix
+}
 
 pub fn main(init: std.process.Init) !void {
     if (Release) {
         rl.SetTraceLogLevel(rl.LOG_ERROR);
     }
 
-    var config: GlobalConfig = .{};
     if (GlobalConfig.load(".", "config.json", init.gpa, init.io)) |loaded_config| {
         config = loaded_config;
     }
@@ -826,12 +845,12 @@ pub fn main(init: std.process.Init) !void {
 
     rl.SetTargetFPS(60);
 
-    var config_watcher = try util.FileWatcher.init(".", "config.json", 0.5, init.io);
+    config_watcher = try util.FileWatcher.init(".", "config.json", 0.5, init.io);
 
-    const audio_manager = AudioManager.init();
-    var sprite_manager = SpriteManager.init();
+    sprite_manager = SpriteManager.init();
+    audio_manager = AudioManager.init();
 
-    var entity_manager = try EntityManager.init(init.gpa);
+    entity_manager = try EntityManager.init(init.gpa);
     defer entity_manager.deinit();
 
     if (false) {
@@ -854,14 +873,12 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    var frame_messages = try std.ArrayList([]const u8).initCapacity(init.gpa, 1024);
+    frame_messages = try std.ArrayList([]const u8).initCapacity(init.gpa, 1024);
     defer frame_messages.deinit(init.gpa);
-    const frame_memory = try init.gpa.alloc(u8, 1 * 1024 * 1024);
-    defer init.gpa.free(frame_memory);
 
-    var frame_fba = std.heap.FixedBufferAllocator.init(frame_memory);
-    var frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());
-    const frame_allocator = frame_arena.allocator();
+    frame_fba = std.heap.FixedBufferAllocator.init(frame_memory[0..]);
+    frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());
+    frame_allocator = frame_arena.allocator();
 
     var camera_position = rl.Vector2{};
 
@@ -881,11 +898,11 @@ pub fn main(init: std.process.Init) !void {
 
         if (game_manager.state == .GameOver) {
             if (rl.GetKeyPressed() != .none) {
-                game_manager.reset(&entity_manager, audio_manager, init.io);
+                game_manager.reset(init.io);
             }
         } else if (game_manager.state == .StartScreen) {
             if (rl.GetKeyPressed() != .none) {
-                game_manager.reset(&entity_manager, audio_manager, init.io);
+                game_manager.reset(init.io);
             }
         }
 
@@ -938,19 +955,11 @@ pub fn main(init: std.process.Init) !void {
 
         rl.ClearBackground(rl.BLACK);
 
-        game_manager.update(input, &entity_manager);
+        game_manager.update(input);
 
-        try update(
-            &entity_manager,
-            input,
-            config,
-            &frame_messages,
-            frame_allocator,
-            player_position_for_pursuit,
-            audio_manager,
-        );
+        try update(input, player_position_for_pursuit);
         cleanupEntities(&entity_manager);
-        render(&entity_manager, &sprite_manager, input, config);
+        render(input);
 
         frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
             frame_allocator,
@@ -1088,7 +1097,6 @@ pub fn main(init: std.process.Init) !void {
                     "Discharged.",
                     "Press any key to try again!",
                     60,
-                    frame_allocator,
                 );
             },
             .StartScreen => {
@@ -1098,7 +1106,6 @@ pub fn main(init: std.process.Init) !void {
                     "The Discharge of Captain Volt",
                     "Press any key to try again!",
                     27,
-                    frame_allocator,
                 );
             },
             else => {},
@@ -1118,7 +1125,7 @@ pub fn main(init: std.process.Init) !void {
         }
 
         if (game_manager.state == .ReadyToRespawn) {
-            game_manager.respawnPlayer(&entity_manager, audio_manager);
+            game_manager.respawnPlayer();
         }
     }
 }
@@ -1129,7 +1136,6 @@ fn generalScreenWithBlinkingPrompt(
     top_text: [*c]const u8,
     blinking_text: [*c]const u8,
     top_font_size: c_int,
-    frame_allocator: std.mem.Allocator,
 ) !void {
     const padding = 4;
     const top_font_size_f: f32 = @floatFromInt(top_font_size);

@@ -1,5 +1,7 @@
 zig-out/
 .zig-cache/
+zig-pkg/
+
 *.rdi
 
 *.png
@@ -17,3 +19,5 @@ assets-to-embed/
 hiscore.dat
 
 todo.md
+
+.reference/
