@@ -85,7 +85,7 @@ const GameManager = struct {
 
     const GuyAwardScore = 200;
 
-    pub fn reset(self: *Self, io: std.Io) void {
+    pub fn reset(self: *Self) void {
         const now_ms = std.Io.Clock.now(std.Io.Clock.real, io).toMilliseconds();
         self.* = Self{};
         self.game_prng = std.Random.DefaultPrng.init(@intCast(now_ms));
@@ -818,22 +818,14 @@ var frame_fba: std.heap.FixedBufferAllocator = undefined;
 var frame_arena: std.heap.ArenaAllocator = undefined;
 var frame_allocator: std.mem.Allocator = undefined;
 
-fn onInit() callconv(.c) void {}
+var camera_position = rl.Vector2{};
 
-fn onFrame() callconv(.c) void {}
-
-fn onCleanup() callconv(.c) void {}
-
-fn onEvent(event: [*c]const sapp.Event) callconv(.c) void {
-    _ = event; // autofix
-}
-
-pub fn main(init: std.process.Init) !void {
+fn initMaybe() !void {
     if (Release) {
         rl.SetTraceLogLevel(rl.LOG_ERROR);
     }
 
-    if (GlobalConfig.load(".", "config.json", init.gpa, init.io)) |loaded_config| {
+    if (GlobalConfig.load(".", "config.json", gpa, io)) |loaded_config| {
         config = loaded_config;
     }
 
@@ -845,13 +837,12 @@ pub fn main(init: std.process.Init) !void {
 
     rl.SetTargetFPS(60);
 
-    config_watcher = try util.FileWatcher.init(".", "config.json", 0.5, init.io);
+    config_watcher = try util.FileWatcher.init(".", "config.json", 0.5, io);
 
     sprite_manager = SpriteManager.init();
     audio_manager = AudioManager.init();
 
-    entity_manager = try EntityManager.init(init.gpa);
-    defer entity_manager.deinit();
+    entity_manager = try EntityManager.init(gpa);
 
     if (false) {
         var entities_to_spawn: i32 = 100;
@@ -873,261 +864,298 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    frame_messages = try std.ArrayList([]const u8).initCapacity(init.gpa, 1024);
-    defer frame_messages.deinit(init.gpa);
+    frame_messages = try std.ArrayList([]const u8).initCapacity(gpa, 1024);
 
     frame_fba = std.heap.FixedBufferAllocator.init(frame_memory[0..]);
     frame_arena = std.heap.ArenaAllocator.init(frame_fba.allocator());
     frame_allocator = frame_arena.allocator();
 
-    var camera_position = rl.Vector2{};
+    hi_score = loadHiScore(gpa);
+}
 
-    hi_score = loadHiScore(init.gpa, init.io);
-    defer {
-        saveHiScore(init.io) catch |err| {
-            log.err(
-                "{s} was not saved because of [{any}], but it was probably not OK.",
-                .{ HiScoreFile, err },
+fn frameMaybe() !void {
+    frame_messages.clearRetainingCapacity();
+    _ = frame_arena.reset(.retain_capacity);
+
+    if (game_manager.state == .GameOver) {
+        if (rl.GetKeyPressed() != .none) {
+            game_manager.reset();
+        }
+    } else if (game_manager.state == .StartScreen) {
+        if (rl.GetKeyPressed() != .none) {
+            game_manager.reset();
+        }
+    }
+
+    const input = Input{
+        .dt = rl.GetFrameTime(),
+        .up = rl.IsKeyDown(.W),
+        .down = rl.IsKeyDown(.S),
+        .left = rl.IsKeyDown(.A),
+        .right = rl.IsKeyDown(.D),
+        .shoot_up = rl.IsKeyDown(.I) or rl.IsKeyDown(.UP),
+        .shoot_down = rl.IsKeyDown(.K) or rl.IsKeyDown(.DOWN),
+        .shoot_left = rl.IsKeyDown(.J) or rl.IsKeyDown(.LEFT),
+        .shoot_right = rl.IsKeyDown(.L) or rl.IsKeyDown(.RIGHT),
+    };
+
+    if (!Release) {
+        if (config_watcher.wasModified(input.dt, io)) {
+            log.debug("Config was changed, reloading...", .{});
+            if (GlobalConfig.load(".", "config.json", frame_allocator, io)) |loaded_config| {
+                //TODO: Print updated values
+                config = loaded_config;
+            } else {
+                log.err("Config was not updated!", .{});
+            }
+        }
+    }
+
+    const screen_width: f32 = @floatFromInt(rl.GetScreenWidth());
+    const screen_height: f32 = @floatFromInt(rl.GetScreenHeight());
+
+    var player_position_for_pursuit: ?rl.Vector2 = null;
+    if (entity_manager.entityField(game_manager.player_handle, .position)) |player_position| {
+        camera_position = rl.Vector2Lerp(camera_position, player_position.*, config.camera_lerp_value);
+        player_position_for_pursuit = player_position.*;
+    }
+
+    const Zoom = 3;
+
+    const camera = rl.Camera2D{
+        .offset = .{ .x = screen_width * 0.5, .y = screen_height * 0.5 },
+        .rotation = 0,
+        .target = camera_position,
+        .zoom = Zoom,
+    };
+
+    rl.BeginDrawing();
+    defer rl.EndDrawing();
+
+    rl.BeginMode2D(camera);
+
+    rl.ClearBackground(rl.BLACK);
+
+    game_manager.update(input);
+
+    try update(input, player_position_for_pursuit);
+    cleanupEntities(&entity_manager);
+    render(input);
+
+    frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
+        frame_allocator,
+        "entities.count = {d}.",
+        .{entity_manager.entities.len},
+        0,
+    ));
+
+    if (false) {
+        // true - to see cool graph
+        rl.DrawLine(0, 0, 500, 0, rl.RED);
+        rl.DrawLine(0, 0, 0, -500, rl.GREEN);
+
+        const hop_distance: f32 = 5;
+        const max_angle: f32 = std.math.degreesToRadians(180);
+        const hop_amp: f32 = 4;
+
+        var t: f32 = 0;
+
+        var hop_value: f32 = 0;
+
+        const Step: f32 = 0.01;
+
+        var prev_value: f32 = 0;
+
+        while (t < 500) : (t += Step) {
+            hop_value += Step;
+            if (hop_value > hop_distance) {
+                hop_value -= hop_distance;
+            }
+
+            const angle_value = (hop_value * max_angle) / hop_distance;
+
+            const value = @sin(angle_value) * hop_amp;
+
+            rl.DrawLineV(.{ .x = t, .y = -prev_value }, .{ .x = t, .y = -value }, rl.GOLD);
+
+            prev_value = value;
+        }
+    }
+
+    rl.EndMode2D();
+
+    const gui_camera = rl.Camera2D{
+        .zoom = Zoom,
+    };
+
+    rl.BeginMode2D(gui_camera);
+
+    const zoomed_screen_width = screen_width / Zoom;
+    const zoomed_screen_height = screen_height / Zoom;
+    switch (game_manager.state) {
+        .RespawnScreen => {
+            const font_size = 20;
+            const padding = 8;
+            const full_text_height = font_size * 2 + 8;
+
+            //TODO: Animate this screen
+            {
+                const text: [*c]const u8 = "Dudes overwhelmed you!";
+
+                const width: f32 = @floatFromInt(rl.MeasureText(text, font_size));
+                rl.DrawText(
+                    text,
+                    @intFromFloat((zoomed_screen_width - width) * 0.5),
+                    @intFromFloat((zoomed_screen_height - full_text_height) * 0.5),
+                    font_size,
+                    rl.RAYWHITE,
+                );
+            }
+            {
+                const text = try std.fmt.allocPrintSentinel(
+                    frame_allocator,
+                    "Respawn in = {d:.0}...",
+                    .{game_manager.respawn_time},
+                    0,
+                );
+                const width: f32 = @floatFromInt(rl.MeasureText(text, font_size));
+                rl.DrawText(
+                    text.ptr,
+                    @intFromFloat((zoomed_screen_width - width) * 0.5),
+                    @intFromFloat((zoomed_screen_height - full_text_height) * 0.5 + padding + font_size),
+                    font_size,
+                    rl.RAYWHITE,
+                );
+            }
+        },
+        .Playing => {
+            if (entity_manager.entityField(game_manager.player_handle, .health)) |player_health| {
+                var i: i8 = 0;
+                var pos = rl.Vector2{ .x = 2, .y = 2 };
+                while (i < player_health.*) : (i += 1) {
+                    const sprite = sprite_manager.get(.Heart);
+                    drawSprite(sprite, pos, 0, rl.RED);
+                    pos.x += sprite.size.x;
+                }
+            }
+            {
+                var i: i8 = 0;
+                var pos = rl.Vector2{ .x = 2, .y = zoomed_screen_height - 16 - 2 };
+                while (i < game_manager.guys_count) : (i += 1) {
+                    const sprite = sprite_manager.get(.Helmet);
+                    drawSprite(sprite, pos, 0, rl.LIME);
+                    pos.x += sprite.size.x;
+                }
+            }
+
+            if (entity_manager.entityField(game_manager.player_handle, .energy)) |player_energy| {
+                drawBatteryIcon(zoomed_screen_width, player_energy.*);
+            }
+
+            {
+                const score_font_size = 16;
+                const padding = 4;
+                const text = try std.fmt.allocPrintSentinel(
+                    frame_allocator,
+                    "{d}",
+                    .{game_manager.score},
+                    0,
+                );
+                const width: f32 = @floatFromInt(rl.MeasureText(text, score_font_size));
+                rl.DrawText(
+                    text.ptr,
+                    @intFromFloat((zoomed_screen_width - width) * 0.5),
+                    @intFromFloat(padding),
+                    score_font_size,
+                    rl.RAYWHITE,
+                );
+            }
+        },
+        .GameOver => {
+            try generalScreenWithBlinkingPrompt(
+                zoomed_screen_width,
+                zoomed_screen_height,
+                "Discharged.",
+                "Press any key to try again!",
+                60,
             );
-        };
+        },
+        .StartScreen => {
+            try generalScreenWithBlinkingPrompt(
+                zoomed_screen_width,
+                zoomed_screen_height,
+                "The Discharge of Captain Volt",
+                "Press any key to try again!",
+                27,
+            );
+        },
+        else => {},
     }
 
-    while (!rl.WindowShouldClose()) {
-        frame_messages.clearRetainingCapacity();
-        _ = frame_arena.reset(.retain_capacity);
+    rl.EndMode2D();
 
-        if (game_manager.state == .GameOver) {
-            if (rl.GetKeyPressed() != .none) {
-                game_manager.reset(init.io);
-            }
-        } else if (game_manager.state == .StartScreen) {
-            if (rl.GetKeyPressed() != .none) {
-                game_manager.reset(init.io);
-            }
-        }
+    if (!Release) {
+        rl.DrawFPS(2, 2);
+    }
 
-        const input = Input{
-            .dt = rl.GetFrameTime(),
-            .up = rl.IsKeyDown(.W),
-            .down = rl.IsKeyDown(.S),
-            .left = rl.IsKeyDown(.A),
-            .right = rl.IsKeyDown(.D),
-            .shoot_up = rl.IsKeyDown(.I) or rl.IsKeyDown(.UP),
-            .shoot_down = rl.IsKeyDown(.K) or rl.IsKeyDown(.DOWN),
-            .shoot_left = rl.IsKeyDown(.J) or rl.IsKeyDown(.LEFT),
-            .shoot_right = rl.IsKeyDown(.L) or rl.IsKeyDown(.RIGHT),
-        };
-
-        if (!Release) {
-            if (config_watcher.wasModified(input.dt, init.io)) {
-                log.debug("Config was changed, reloading...", .{});
-                if (GlobalConfig.load(".", "config.json", frame_allocator, init.io)) |loaded_config| {
-                    //TODO: Print updated values
-                    config = loaded_config;
-                } else {
-                    log.err("Config was not updated!", .{});
-                }
-            }
-        }
-
-        const screen_width: f32 = @floatFromInt(rl.GetScreenWidth());
-        const screen_height: f32 = @floatFromInt(rl.GetScreenHeight());
-
-        var player_position_for_pursuit: ?rl.Vector2 = null;
-        if (entity_manager.entityField(game_manager.player_handle, .position)) |player_position| {
-            camera_position = rl.Vector2Lerp(camera_position, player_position.*, config.camera_lerp_value);
-            player_position_for_pursuit = player_position.*;
-        }
-
-        const Zoom = 3;
-
-        const camera = rl.Camera2D{
-            .offset = .{ .x = screen_width * 0.5, .y = screen_height * 0.5 },
-            .rotation = 0,
-            .target = camera_position,
-            .zoom = Zoom,
-        };
-
-        rl.BeginDrawing();
-        defer rl.EndDrawing();
-
-        rl.BeginMode2D(camera);
-
-        rl.ClearBackground(rl.BLACK);
-
-        game_manager.update(input);
-
-        try update(input, player_position_for_pursuit);
-        cleanupEntities(&entity_manager);
-        render(input);
-
-        frame_messages.appendAssumeCapacity(try std.fmt.allocPrintSentinel(
-            frame_allocator,
-            "entities.count = {d}.",
-            .{entity_manager.entities.len},
-            0,
-        ));
-
-        if (false) {
-            // true - to see cool graph
-            rl.DrawLine(0, 0, 500, 0, rl.RED);
-            rl.DrawLine(0, 0, 0, -500, rl.GREEN);
-
-            const hop_distance: f32 = 5;
-            const max_angle: f32 = std.math.degreesToRadians(180);
-            const hop_amp: f32 = 4;
-
-            var t: f32 = 0;
-
-            var hop_value: f32 = 0;
-
-            const Step: f32 = 0.01;
-
-            var prev_value: f32 = 0;
-
-            while (t < 500) : (t += Step) {
-                hop_value += Step;
-                if (hop_value > hop_distance) {
-                    hop_value -= hop_distance;
-                }
-
-                const angle_value = (hop_value * max_angle) / hop_distance;
-
-                const value = @sin(angle_value) * hop_amp;
-
-                rl.DrawLineV(.{ .x = t, .y = -prev_value }, .{ .x = t, .y = -value }, rl.GOLD);
-
-                prev_value = value;
-            }
-        }
-
-        rl.EndMode2D();
-
-        const gui_camera = rl.Camera2D{
-            .zoom = Zoom,
-        };
-
-        rl.BeginMode2D(gui_camera);
-
-        const zoomed_screen_width = screen_width / Zoom;
-        const zoomed_screen_height = screen_height / Zoom;
-        switch (game_manager.state) {
-            .RespawnScreen => {
-                const font_size = 20;
-                const padding = 8;
-                const full_text_height = font_size * 2 + 8;
-
-                //TODO: Animate this screen
-                {
-                    const text: [*c]const u8 = "Dudes overwhelmed you!";
-
-                    const width: f32 = @floatFromInt(rl.MeasureText(text, font_size));
-                    rl.DrawText(
-                        text,
-                        @intFromFloat((zoomed_screen_width - width) * 0.5),
-                        @intFromFloat((zoomed_screen_height - full_text_height) * 0.5),
-                        font_size,
-                        rl.RAYWHITE,
-                    );
-                }
-                {
-                    const text = try std.fmt.allocPrintSentinel(
-                        frame_allocator,
-                        "Respawn in = {d:.0}...",
-                        .{game_manager.respawn_time},
-                        0,
-                    );
-                    const width: f32 = @floatFromInt(rl.MeasureText(text, font_size));
-                    rl.DrawText(
-                        text.ptr,
-                        @intFromFloat((zoomed_screen_width - width) * 0.5),
-                        @intFromFloat((zoomed_screen_height - full_text_height) * 0.5 + padding + font_size),
-                        font_size,
-                        rl.RAYWHITE,
-                    );
-                }
-            },
-            .Playing => {
-                if (entity_manager.entityField(game_manager.player_handle, .health)) |player_health| {
-                    var i: i8 = 0;
-                    var pos = rl.Vector2{ .x = 2, .y = 2 };
-                    while (i < player_health.*) : (i += 1) {
-                        const sprite = sprite_manager.get(.Heart);
-                        drawSprite(sprite, pos, 0, rl.RED);
-                        pos.x += sprite.size.x;
-                    }
-                }
-                {
-                    var i: i8 = 0;
-                    var pos = rl.Vector2{ .x = 2, .y = zoomed_screen_height - 16 - 2 };
-                    while (i < game_manager.guys_count) : (i += 1) {
-                        const sprite = sprite_manager.get(.Helmet);
-                        drawSprite(sprite, pos, 0, rl.LIME);
-                        pos.x += sprite.size.x;
-                    }
-                }
-
-                if (entity_manager.entityField(game_manager.player_handle, .energy)) |player_energy| {
-                    drawBatteryIcon(zoomed_screen_width, player_energy.*);
-                }
-
-                {
-                    const score_font_size = 16;
-                    const padding = 4;
-                    const text = try std.fmt.allocPrintSentinel(
-                        frame_allocator,
-                        "{d}",
-                        .{game_manager.score},
-                        0,
-                    );
-                    const width: f32 = @floatFromInt(rl.MeasureText(text, score_font_size));
-                    rl.DrawText(
-                        text.ptr,
-                        @intFromFloat((zoomed_screen_width - width) * 0.5),
-                        @intFromFloat(padding),
-                        score_font_size,
-                        rl.RAYWHITE,
-                    );
-                }
-            },
-            .GameOver => {
-                try generalScreenWithBlinkingPrompt(
-                    zoomed_screen_width,
-                    zoomed_screen_height,
-                    "Discharged.",
-                    "Press any key to try again!",
-                    60,
-                );
-            },
-            .StartScreen => {
-                try generalScreenWithBlinkingPrompt(
-                    zoomed_screen_width,
-                    zoomed_screen_height,
-                    "The Discharge of Captain Volt",
-                    "Press any key to try again!",
-                    27,
-                );
-            },
-            else => {},
-        }
-
-        rl.EndMode2D();
-
-        if (!Release) {
-            rl.DrawFPS(2, 2);
-        }
-
-        if (DebugMode) {
-            for (frame_messages.items, 0..) |frame_message, i| {
-                const index: c_int = @intCast(i);
-                rl.DrawText(frame_message.ptr, 2, 20 * (index + 1), 18, rl.RAYWHITE);
-            }
-        }
-
-        if (game_manager.state == .ReadyToRespawn) {
-            game_manager.respawnPlayer();
+    if (DebugMode) {
+        for (frame_messages.items, 0..) |frame_message, i| {
+            const index: c_int = @intCast(i);
+            rl.DrawText(frame_message.ptr, 2, 20 * (index + 1), 18, rl.RAYWHITE);
         }
     }
+
+    if (game_manager.state == .ReadyToRespawn) {
+        game_manager.respawnPlayer();
+    }
+}
+
+fn cleanupMaybe() !void {
+    saveHiScore() catch |err| {
+        log.err(
+            "{s} was not saved because of [{any}], but it was probably not OK.",
+            .{ HiScoreFile, err },
+        );
+    };
+    frame_messages.deinit(gpa);
+    entity_manager.deinit();
+}
+
+fn onInit() callconv(.c) void {
+    initMaybe() catch |err| @panic(@errorName(err));
+}
+
+fn onFrame() callconv(.c) void {
+    frameMaybe() catch |err| @panic(@errorName(err));
+}
+
+fn onCleanup() callconv(.c) void {
+    cleanupMaybe() catch |err| @panic(@errorName(err));
+}
+
+fn onEvent(event: [*c]const sapp.Event) callconv(.c) void {
+    _ = event; // autofix
+}
+
+var gpa: std.mem.Allocator = undefined;
+var io: std.Io = undefined;
+
+pub fn main(init: std.process.Init) !void {
+    gpa = init.gpa;
+    io = init.io;
+    sapp.run(.{
+        .init_cb = onInit,
+        .frame_cb = onFrame,
+        .cleanup_cb = onCleanup,
+        .width = 1280,
+        .height = 720,
+        .icon = .{ .sokol_default = true },
+        .depth_format = .DEPTH,
+        .window_title = "The Discharge of Captain Volt",
+        .logger = .{ .func = slog.func },
+        .win32 = .{ .console_attach = true },
+        .swap_interval = 1,
+    });
 }
 
 fn generalScreenWithBlinkingPrompt(
@@ -1187,7 +1215,7 @@ var hi_score: u32 = 0;
 
 const HiScoreFile = "hiscore.dat";
 
-fn loadHiScore(allocator: std.mem.Allocator, io: std.Io) u32 {
+fn loadHiScore(allocator: std.mem.Allocator) u32 {
     const hi_score_data_maybe = util.readEntireFileAlloc(".", HiScoreFile, allocator, io);
 
     if (hi_score_data_maybe) |hi_score_data| {
@@ -1207,7 +1235,7 @@ fn loadHiScore(allocator: std.mem.Allocator, io: std.Io) u32 {
     return 0;
 }
 
-fn saveHiScore(io: std.Io) !void {
+fn saveHiScore() !void {
     var d = try std.Io.Dir.cwd().openDir(io, ".", .{});
     defer d.close(io);
 
