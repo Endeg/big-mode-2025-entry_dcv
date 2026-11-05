@@ -1,24 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const log = std.log;
-const BuildMode = @import("builtin").mode;
-
-const sokol = @import("sokol");
-const slog = sokol.log;
-const sg = sokol.gfx;
-const sapp = sokol.app;
-const sglue = sokol.glue;
-
-const AudioManager = @import("AudioManager.zig");
-const EntityManager = @import("entity.zig").EntityManager;
-const GigaEntity = @import("entity.zig").GigaEntity;
-const GlobalConfig = @import("GlobalConfig.zig");
-const rl = @import("raylib_stub.zig");
-const SpriteManager = @import("SpriteManager.zig");
-const Sprite = SpriteManager.Sprite;
-const SpriteHandle = SpriteManager.SpriteHandle;
-const util = @import("util.zig");
-
 //TODO: GPA allocator: dupeZ/free - possible bug
 
 // TODO: Main game loop:
@@ -1247,3 +1226,24 @@ fn saveHiScore() !void {
 
     try r.interface.writeInt(u32, hi_score, .little);
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const log = std.log;
+const BuildMode = @import("builtin").mode;
+
+const sokol = @import("sokol");
+const slog = sokol.log;
+const sg = sokol.gfx;
+const sapp = sokol.app;
+const sglue = sokol.glue;
+
+const AudioManager = @import("AudioManager.zig");
+const EntityManager = @import("entity.zig").EntityManager;
+const GigaEntity = @import("entity.zig").GigaEntity;
+const GlobalConfig = @import("GlobalConfig.zig");
+const rl = @import("raylib_stub.zig");
+const SpriteManager = @import("SpriteManager.zig");
+const Sprite = SpriteManager.Sprite;
+const SpriteHandle = SpriteManager.SpriteHandle;
+const util = @import("util.zig");

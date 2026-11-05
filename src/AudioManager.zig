@@ -1,9 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const log = std.log;
-
-const rl = @import("raylib_stub.zig");
-
 const AudioManager = @This();
 
 sounds: std.EnumArray(AudioAsset, rl.Sound),
@@ -85,3 +79,9 @@ const AudioAssets = std.EnumArray(AudioAsset, []const u8).init(.{
     .GameOver = @embedFile(AudioAssetsDir ++ "General Sounds/Weird Sounds/sfx_sound_shutdown2.wav"),
     .NewGame = @embedFile(AudioAssetsDir ++ "General Sounds/Weird Sounds/sfx_sound_poweron.wav"),
 });
+
+const std = @import("std");
+const assert = std.debug.assert;
+const log = std.log;
+
+const rl = @import("raylib_stub.zig");

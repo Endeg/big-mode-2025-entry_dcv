@@ -1,7 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const log = std.log;
-
 pub fn readEntireFileAlloc(
     directory: []const u8,
     file_name: []const u8,
@@ -63,3 +59,7 @@ pub const FileWatcher = struct {
         return false;
     }
 };
+
+const std = @import("std");
+const assert = std.debug.assert;
+const log = std.log;

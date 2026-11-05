@@ -1,9 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const log = std.log;
-
-const rl = @import("raylib_stub.zig");
-
 pub const GigaEntity = struct {
     handle: EntityManager.Handle = undefined,
     flags: Flags = undefined,
@@ -180,7 +174,7 @@ pub const EntityManager = struct {
     pub fn createEntity(self: *Self, entity: GigaEntity) Handle {
         assert(self.entities.len == self.entity_index.count());
 
-        const new_handle: Handle = @enumFromInt(self.current_entity_counter);
+        const new_handle: Handle = @fromBackingInt(@intCast(self.current_entity_counter));
         defer self.current_entity_counter += 1;
 
         const entity_row = self.entities.len;
@@ -268,7 +262,7 @@ test "entity manager stuff" {
     while (entities_count > 0) : (entities_count -= 1) {
         const handle = em.createEntity(GigaEntity.player(
             .{ .x = rng.float(f32), .y = rng.float(f32) },
-            @enumFromInt(rng.int(u16)),
+            @fromBackingInt(@intCast(rng.int(u16))),
         ));
         entity_handles.appendAssumeCapacity(handle);
     }
@@ -282,3 +276,9 @@ test "entity manager stuff" {
     try std.testing.expectEqual(0, em.entity_index.count());
     try std.testing.expectEqual(0, em.entities.len);
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const log = std.log;
+
+const rl = @import("raylib_stub.zig");

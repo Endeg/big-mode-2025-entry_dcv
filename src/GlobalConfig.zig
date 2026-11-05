@@ -1,11 +1,5 @@
 const GlobalConfig = @This();
 
-const std = @import("std");
-const assert = std.debug.assert;
-const log = std.log;
-
-const util = @import("util.zig");
-
 camera_lerp_value: f32 = 0.05,
 player_acc_magnitude: f32 = 200,
 general_radius: f32 = 8,
@@ -60,3 +54,9 @@ pub fn load(directory: []const u8, file_name: []const u8, allocator: std.mem.All
     }
     return null;
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const log = std.log;
+
+const util = @import("util.zig");

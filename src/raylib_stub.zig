@@ -424,6 +424,5 @@ pub const MAGENTA = Color.init(255, 0, 255, 255);
 pub const RAYWHITE = Color.init(245, 245, 245, 255);
 
 const std = @import("std");
-
 const log = std.log;
 const assert = std.debug.assert;

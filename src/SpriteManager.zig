@@ -1,9 +1,3 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const log = std.log;
-
-const rl = @import("raylib_stub.zig");
-
 const SpriteManager = @This();
 
 const Error = error{
@@ -170,3 +164,9 @@ const SpriteInfo = struct {
     size: ?rl.Vector2 = null,
     origin: rl.Vector2,
 };
+
+const std = @import("std");
+const log = std.log;
+const assert = std.debug.assert;
+
+const rl = @import("raylib_stub.zig");
