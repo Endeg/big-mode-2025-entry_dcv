@@ -1,2 +1,2 @@
 @echo off
-zig build -Doptimize=ReleaseFast
+zig build -Doptimize=safe

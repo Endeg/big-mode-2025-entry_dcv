@@ -10,7 +10,10 @@ fn compileShaders(b: *std.Build, dep_sokol: *std.Build.Dependency, imports: *std
             .shdc_dep = dep_shdc,
             .input = "src/shaders/" ++ shader_name ++ ".glsl",
             .output = "shader.zig",
-            .slang = .{ .hlsl5 = true },
+            .slang = .{
+                .hlsl5 = true,
+                .glsl430 = true,
+            },
         });
 
         imports.appendAssumeCapacity(.{
@@ -27,6 +30,7 @@ pub fn build(b: *std.Build) void {
     const dep_sokol = b.dependency("sokol", .{
         .target = target,
         .optimize = optimize,
+        // .backend = .gl,
     });
 
     const mod_sokol = dep_sokol.module("sokol");

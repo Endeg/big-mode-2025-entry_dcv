@@ -1103,6 +1103,7 @@ const SokolState = struct {
     test_triangle: sg.Buffer,
     view: sg.View,
     sampler: sg.Sampler,
+    immediate_render: ImmediateRender,
 };
 
 var sokol_state: SokolState = undefined;
@@ -1158,7 +1159,9 @@ fn onInit() callconv(.c) void {
             .image = sokol_state.fallback_image,
         },
     });
-    sokol_state.sampler = sg.makeSampler(.{});
+    sokol_state.sampler = sg.makeSampler(.{ .mag_filter = .NEAREST });
+
+    sokol_state.immediate_render = .init();
 
     initMaybe() catch |err| @panic(@errorName(err));
 }
@@ -1168,7 +1171,27 @@ const Vertex = extern struct { x: f32, y: f32, color: u32, u: u16, v: u16 };
 fn onFrame() callconv(.c) void {
     frameMaybe() catch |err| @panic(@errorName(err));
 
-    var bind: sg.Bindings = .{};
+    {
+        // Note: AA BB GG RR
+
+        sokol_state.immediate_render.pushQuad(.{
+            // zig fmt: off
+            .{.x = -0.5, .y =  0.5, .color = 0xFF0000FF, .u = 0x0000, .v = 0x0000 },
+            .{.x =  0.5, .y =  0.5, .color = 0xFF00FF00, .u = 0xFFFF, .v = 0x0000 },
+            .{.x =  0.5, .y = -0.5, .color = 0xFFFF0000, .u = 0xFFFF, .v = 0xFFFF },
+            .{.x = -0.5, .y = -0.5, .color = 0xFFFFFFFF, .u = 0x0000, .v = 0xFFFF },
+            // zig fmt: on
+        }, sokol_state.view);
+
+        sokol_state.immediate_render.pushQuad(.{
+            // zig fmt: off
+            .{.x = -0.25, .y =  0.25, .color = 0xFF0000FF, .u = 0x0000, .v = 0x0000 },
+            .{.x =  0.25, .y =  0.25, .color = 0xFF00FF00, .u = 0xFFFF, .v = 0x0000 },
+            .{.x =  0.25, .y = -0.25, .color = 0xFFFF0000, .u = 0xFFFF, .v = 0xFFFF },
+            .{.x = -0.25, .y = -0.25, .color = 0xFFFFFFFF, .u = 0x0000, .v = 0xFFFF },
+            // zig fmt: on
+        }, sokol_state.view);
+    }
 
     var pass_action: sg.PassAction = .{};
     pass_action.colors[0].load_action = .CLEAR;
@@ -1179,6 +1202,7 @@ fn onFrame() callconv(.c) void {
         .a = 1,
     };
 
+    var bind: sg.Bindings = .{};
     bind.vertex_buffers[0] = sokol_state.test_triangle;
     bind.views[shader_sprite2d.VIEW_tex] = sokol_state.view;
     bind.samplers[shader_sprite2d.SMP_smp] = sokol_state.sampler;
@@ -1187,19 +1211,21 @@ fn onFrame() callconv(.c) void {
         .action = pass_action,
         .swapchain = sglue.swapchain(),
     });
-    sg.applyPipeline(sokol_state.pipeline);
-    sg.applyBindings(bind);
-    //sg.applyUniforms(shd.UB_vs_params, sg.asRange(&vs_params));
-    sg.draw(0, 3, 1);
+
+    sokol_state.immediate_render.draw(sokol_state.sampler, sokol_state.pipeline);
+
+    // sg.applyPipeline(sokol_state.pipeline);
+    // sg.applyBindings(bind);
+    // //sg.applyUniforms(shd.UB_vs_params, sg.asRange(&vs_params));
+    // sg.draw(0, 3, 1);
     sg.endPass();
     sg.commit();
+
+    //io.sleep(.fromMilliseconds(@divFloor(1000, 60)), std.Io.Clock.real) catch |err| @panic(@errorName(err));
 }
 
 fn onCleanup() callconv(.c) void {
     cleanupMaybe() catch |err| @panic(@errorName(err));
-
-    sg.destroyShader(sokol_state.shader);
-
     sg.shutdown();
 }
 
@@ -1209,6 +1235,108 @@ fn onEvent(event: [*c]const sapp.Event) callconv(.c) void {
 
 var gpa: std.mem.Allocator = undefined;
 var io: std.Io = undefined;
+
+const ImmediateRender = struct {
+    buffer: sg.Buffer,
+
+    vertices: Vertices = undefined,
+    draw_calls: [0xFFFF]DrawCall = undefined,
+
+    current_draw_call: DrawCall = .{
+        .base_element = 0,
+        .num_elements = 0,
+        .texture_view = .{},
+    },
+
+    vertex_index: u16 = 0,
+    draw_call_index: u16 = 0,
+
+    const Self = @This();
+
+    const Vertices = [0xFFFF]Vertex;
+
+    pub fn init() Self {
+        return .{
+            .buffer = sg.makeBuffer(.{
+                .size = @sizeOf(Vertices),
+                .usage = .{ .vertex_buffer = true, .write_transient = true },
+            }),
+        };
+    }
+
+    pub fn pushQuad(
+        self: *Self,
+        vs: [4]Vertex, // TODO: Can be compacted
+        texture_view: sg.View,
+    ) void {
+        if (texture_view.id != self.current_draw_call.texture_view.id) {
+            self.flush();
+            self.current_draw_call.texture_view = texture_view;
+        }
+        self.pushVertex(vs[0]);
+        self.pushVertex(vs[1]);
+        self.pushVertex(vs[3]);
+
+        self.pushVertex(vs[1]);
+        self.pushVertex(vs[2]);
+        self.pushVertex(vs[3]);
+    }
+
+    pub fn draw(self: *Self, tmp_sampler: sg.Sampler, tmp_pipeline: sg.Pipeline) void {
+        self.flush();
+
+        if (self.draw_call_index == 0) {
+            return;
+        }
+
+        sg.writeBufferTransient(.{
+            .src = .{ .data = sg.asRange(self.vertices[0..self.vertex_index]) },
+            .dst = .{ .buffer = self.buffer },
+        });
+
+        var bind: sg.Bindings = .{};
+        bind.vertex_buffers[0] = self.buffer;
+
+        sg.applyPipeline(tmp_pipeline);
+        for (self.draw_calls[0..self.draw_call_index]) |draw_call| {
+            bind.views[shader_sprite2d.VIEW_tex] = draw_call.texture_view;
+            bind.samplers[shader_sprite2d.SMP_smp] = tmp_sampler;
+
+            sg.applyBindings(bind);
+            sg.draw(draw_call.base_element, draw_call.num_elements, 1);
+        }
+
+        self.current_draw_call = .{
+            .base_element = 0,
+            .num_elements = 0,
+            .texture_view = .{},
+        };
+        self.vertex_index = 0;
+        self.draw_call_index = 0;
+    }
+
+    fn pushVertex(self: *Self, v: Vertex) void {
+        assert(self.vertex_index < self.vertices.len);
+        self.vertices[self.vertex_index] = v;
+        self.vertex_index += 1;
+        self.current_draw_call.num_elements += 1;
+    }
+
+    fn flush(self: *Self) void {
+        if (self.current_draw_call.num_elements == 0) {
+            return;
+        }
+
+        self.draw_calls[self.draw_call_index] = self.current_draw_call;
+        self.draw_call_index += 1;
+    }
+
+    const DrawCall = struct {
+        base_element: u32,
+        num_elements: u32,
+        texture_view: sg.View,
+    };
+};
 
 pub fn main(init: std.process.Init) !void {
     gpa = init.gpa;
