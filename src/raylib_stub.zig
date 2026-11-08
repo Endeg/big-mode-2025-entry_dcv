@@ -32,39 +32,45 @@ pub const Camera2D = extern struct {
     zoom: f32 = 0,
 };
 
+const LogEnabled = false;
+
 pub fn InitWindow(width: i32, height: i32, title: [*c]const u8) void {
-    log.debug("{s}({d}, {d}, {s})", .{ @src().fn_name, width, height, title });
+    if (LogEnabled) log.debug("{s}({d}, {d}, {s})", .{ @src().fn_name, width, height, title });
 }
 
 pub fn CloseWindow() void {
-    log.debug("{s}()", .{
+    if (LogEnabled) log.debug("{s}()", .{
         @src().fn_name,
     });
 }
 
 pub fn SetConfigFlags(flags: u32) void {
-    log.debug("{s}({X:8})", .{ @src().fn_name, flags });
+    if (LogEnabled) log.debug("{s}({X:8})", .{ @src().fn_name, flags });
 }
 
 pub fn SetTargetFPS(fps: i32) void {
-    log.debug("{s}({d})", .{ @src().fn_name, fps });
+    if (LogEnabled) log.debug("{s}({d})", .{ @src().fn_name, fps });
 }
 
 pub fn LoadWaveFromMemory(fileType: [*c]const u8, fileData: [*c]const u8, dataSize: i32) Wave {
-    log.debug("{s}({s}, <fileData>, {d})", .{ @src().fn_name, fileType, dataSize });
-    std.debug.dumpHex(fileData[0..@intCast(@min(dataSize, 16))]);
+    if (LogEnabled) {
+        log.debug("{s}({s}, <fileData>, {d})", .{ @src().fn_name, fileType, dataSize });
+        std.debug.dumpHex(fileData[0..@intCast(@min(dataSize, 16))]);
+    }
     return .{};
 }
 
 pub fn LoadImageFromMemory(fileType: [*c]const u8, fileData: [*c]const u8, dataSize: i32) Image {
-    log.debug("{s}({s}, <fileData>, {d})", .{ @src().fn_name, fileType, dataSize });
-    std.debug.dumpHex(fileData[0..@intCast(@min(dataSize, 16))]);
+    if (LogEnabled) {
+        log.debug("{s}({s}, <fileData>, {d})", .{ @src().fn_name, fileType, dataSize });
+        std.debug.dumpHex(fileData[0..@intCast(@min(dataSize, 16))]);
+    }
     return .{};
 }
 
 pub fn LoadTextureFromImage(image: Image) Texture2D {
     _ = image;
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     return .{
         .width = 8,
         .height = 8,
@@ -72,30 +78,30 @@ pub fn LoadTextureFromImage(image: Image) Texture2D {
 }
 
 pub fn UnloadImage(image: Image) void {
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     _ = image;
 }
 
 pub fn UnloadWave(wave: Wave) void {
     _ = wave;
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
 }
 
 pub fn IsWaveValid(wave: Wave) bool {
     _ = wave;
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     return true;
 }
 
 pub fn IsSoundValid(sound: Sound) bool {
     _ = sound;
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     return true;
 }
 
 pub fn LoadSoundFromWave(wave: Wave) Sound {
     _ = wave;
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     return .{};
 }
 
@@ -103,7 +109,7 @@ pub fn WindowShouldClose() bool {
     const S = struct {
         var frames: u8 = 100;
     };
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
 
     if (S.frames > 0) {
         S.frames -= 1;
@@ -113,68 +119,68 @@ pub fn WindowShouldClose() bool {
 }
 
 pub fn GetKeyPressed() Key {
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     return .A;
 }
 
 pub fn IsKeyDown(key: Key) bool {
-    log.debug("{s}({any})", .{ @src().fn_name, key });
+    if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, key });
     return false;
 }
 pub fn IsKeyUp(key: Key) bool {
-    log.debug("{s}({any})", .{ @src().fn_name, key });
+    if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, key });
     return false;
 }
 
 pub fn PlaySound(sound: Sound) void {
     _ = sound;
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
 }
 
 pub fn GetFrameTime() f32 {
     if (false) {
-        log.debug("{s}()", .{@src().fn_name});
+        if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     }
 
     return 1 / 60;
 }
 
 pub fn GetScreenWidth() i32 {
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     return 1280;
 }
 
 pub fn GetScreenHeight() i32 {
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     return 720;
 }
 
 pub fn MeasureText(text: [*c]const u8, fontSize: i32) i32 {
-    log.debug("{s}({s}, {d})", .{ @src().fn_name, text, fontSize });
+    if (LogEnabled) log.debug("{s}({s}, {d})", .{ @src().fn_name, text, fontSize });
 
     return 1 * fontSize;
 }
 
 pub fn DrawText(text: [*c]const u8, posX: i32, posY: i32, fontSize: i32, color: Color) void {
-    log.debug("{s}({s}, {d}, {d}, {d}, {any})", .{ @src().fn_name, text, posX, posY, fontSize, color });
+    if (LogEnabled) log.debug("{s}({s}, {d}, {d}, {d}, {any})", .{ @src().fn_name, text, posX, posY, fontSize, color });
 }
 
 pub fn ColorLerp(color1: Color, color2: Color, factor: f32) Color {
-    log.debug("{s}({any}, {any}, {d})", .{ @src().fn_name, color1, color2, factor });
+    if (LogEnabled) log.debug("{s}({any}, {any}, {d})", .{ @src().fn_name, color1, color2, factor });
     return .{};
 }
 
 pub fn DrawRectangleV(position: Vector2, size: Vector2, color: Color) void {
-    log.debug("{s}({any}, {any}, {any})", .{ @src().fn_name, position, size, color });
+    if (LogEnabled) log.debug("{s}({any}, {any}, {any})", .{ @src().fn_name, position, size, color });
 }
 
 pub fn GetTime() f64 {
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     return 0;
 }
 
 pub fn DrawFPS(posX: i32, posY: i32) void {
-    log.debug("{s}({d}, {d})", .{ @src().fn_name, posX, posY });
+    if (LogEnabled) log.debug("{s}({d}, {d})", .{ @src().fn_name, posX, posY });
 }
 
 pub fn Vector2Lerp(arg_v1: Vector2, arg_v2: Vector2, arg_amount: f32) callconv(.c) Vector2 {
@@ -326,40 +332,40 @@ pub fn Vector2ClampValue(arg_v: Vector2, arg_min: f32, arg_max: f32) callconv(.c
 }
 
 pub fn DrawRectangle(posX: i32, posY: i32, width: i32, height: i32, color: Color) void {
-    log.debug("{s}({d}, {d}, {d}, {d}, {any})", .{ @src().fn_name, posX, posY, width, height, color });
+    if (LogEnabled) log.debug("{s}({d}, {d}, {d}, {d}, {any})", .{ @src().fn_name, posX, posY, width, height, color });
 }
 
 pub fn DrawTexturePro(texture: Texture2D, source: Rectangle, dest: Rectangle, origin: Vector2, rotation: f32, tint: Color) void {
-    log.debug("{s}({any}, {any}, {any}, {any}, {d}, {any})", .{ @src().fn_name, texture, source, dest, origin, rotation, tint });
+    if (LogEnabled) log.debug("{s}({any}, {any}, {any}, {any}, {d}, {any})", .{ @src().fn_name, texture, source, dest, origin, rotation, tint });
 }
 
 pub fn BeginDrawing() void {
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
 }
 
 pub fn EndDrawing() void {
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
 }
 
 pub fn BeginMode2D(camera: Camera2D) void {
-    log.debug("{s}({any})", .{ @src().fn_name, camera });
+    if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, camera });
 }
 
 pub fn EndMode2D() void {
-    log.debug("{s}()", .{@src().fn_name});
+    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
 }
 
 pub fn ClearBackground(color: Color) void {
-    log.debug("{s}({any})", .{ @src().fn_name, color });
+    if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, color });
 }
 
 pub fn ColorToHSV(color: Color) Vector3 {
-    log.debug("{s}({any})", .{ @src().fn_name, color });
+    if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, color });
     return .{};
 }
 
 pub fn ColorFromHSV(hue: f32, saturation: f32, value: f32) Color {
-    log.debug("{s}({d}, {d}, {d})", .{ @src().fn_name, hue, saturation, value });
+    if (LogEnabled) log.debug("{s}({d}, {d}, {d})", .{ @src().fn_name, hue, saturation, value });
     return .{};
 }
 

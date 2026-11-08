@@ -60,6 +60,44 @@ pub const FileWatcher = struct {
     }
 };
 
+pub fn loggerFunction(tag: [*c]const u8, log_level: u32, log_item: u32, maybe_message: [*c]const u8, line_nr: u32, maybe_filename: [*c]const u8, user_data: ?*anyopaque) callconv(.c) void {
+    _ = user_data; // autofix
+
+    const Level = enum(u32) {
+        panic = 0,
+        @"error" = 1,
+        warning = 2,
+        _,
+    };
+
+    const level: Level = @fromBackingInt(log_level);
+
+    if (maybe_message) |message| {
+        if (maybe_filename) |filename| {
+            switch (level) {
+                .panic => log.err("panic! [id:{d}] [{s}] {s}:{d} {s}", .{ log_item, tag, filename, line_nr, message }),
+                .@"error" => log.err("[id:{d}] [{s}] {s}:{d} {s}", .{ log_item, tag, filename, line_nr, message }),
+                .warning => log.warn("[id:{d}] [{s}] {s}:{d} {s}", .{ log_item, tag, filename, line_nr, message }),
+                else => log.info("[id:{d}] [{s}] {s}:{d} {s}", .{ log_item, tag, filename, line_nr, message }),
+            }
+        } else {
+            switch (level) {
+                .panic => log.err("panic! [id:{d}] [{s}] {s}", .{ log_item, tag, message }),
+                .@"error" => log.err("[id:{d}] [{s}] {s}", .{ log_item, tag, message }),
+                .warning => log.warn("[id:{d}] [{s}] {s}", .{ log_item, tag, message }),
+                else => log.info("[id:{d}] [{s}] {s}", .{ log_item, tag, message }),
+            }
+        }
+    } else {
+        switch (level) {
+            .panic => log.err("panic! [id:{d}] [{s}] no message", .{ log_item, tag }),
+            .@"error" => log.err("[id:{d}] [{s}] no message", .{ log_item, tag }),
+            .warning => log.warn("[id:{d}] [{s}] no message", .{ log_item, tag }),
+            else => log.info("[id:{d}] [{s}] no message", .{ log_item, tag }),
+        }
+    }
+}
+
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;

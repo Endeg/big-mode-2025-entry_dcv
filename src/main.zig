@@ -800,10 +800,6 @@ var frame_allocator: std.mem.Allocator = undefined;
 var camera_position = rl.Vector2{};
 
 fn initMaybe() !void {
-    if (Release) {
-        rl.SetTraceLogLevel(rl.LOG_ERROR);
-    }
-
     if (GlobalConfig.load(".", "config.json", gpa, io)) |loaded_config| {
         config = loaded_config;
     }
@@ -1100,16 +1096,111 @@ fn cleanupMaybe() !void {
     entity_manager.deinit();
 }
 
+const SokolState = struct {
+    shader: sg.Shader,
+    fallback_image: sg.Image,
+    pipeline: sg.Pipeline,
+    test_triangle: sg.Buffer,
+    view: sg.View,
+    sampler: sg.Sampler,
+};
+
+var sokol_state: SokolState = undefined;
+
 fn onInit() callconv(.c) void {
+    sg.setup(.{
+        .environment = sglue.environment(),
+        .logger = .{ .func = util.loggerFunction },
+    });
+
+    sokol_state.shader = sg.makeShader(shader_sprite2d.sprite2dShaderDesc(sg.queryBackend()));
+
+    sokol_state.fallback_image = sg.makeImage(.{
+        .width = 4,
+        .height = 4,
+        .data = sg.asRange(&[4 * 4]u32{
+            0xFFFFFFFF, 0xFF000000, 0xFFFFFFFF, 0xFF000000,
+            0xFF000000, 0xFFFFFFFF, 0xFF000000, 0xFFFFFFFF,
+            0xFFFFFFFF, 0xFF000000, 0xFFFFFFFF, 0xFF000000,
+            0xFF000000, 0xFFFFFFFF, 0xFF000000, 0xFFFFFFFF,
+        }),
+    });
+
+    sokol_state.pipeline = sg.makePipeline(.{
+        .shader = sokol_state.shader,
+        .layout = init: {
+            var l: sg.VertexLayoutState = .{};
+            l.attrs[shader_sprite2d.ATTR_sprite2d_pos].format = .FLOAT2;
+            l.attrs[shader_sprite2d.ATTR_sprite2d_color0].format = .UBYTE4N;
+            l.attrs[shader_sprite2d.ATTR_sprite2d_texcoord0].format = .USHORT2N;
+            break :init l;
+        },
+        // .index_type = .UINT16,
+        // .depth = .{
+        //     .compare = .LESS_EQUAL,
+        //     .write_enabled = true,
+        // },
+        .cull_mode = .BACK,
+    });
+
+    sokol_state.test_triangle = sg.makeBuffer(.{
+        .data = sg.asRange(&[_]Vertex{
+            // zig fmt: off
+            .{ .x =    0, .y =  0.5, .color = 0xFF0000FF, .u = 0x0000,  .v = 0xFFFF },
+            .{ .x =  0.5, .y = -0.5, .color = 0xFF00FF00, .u = 0xFFFF,  .v = 0x0000 },
+            .{ .x = -0.5, .y = -0.5, .color = 0xFFFF0000, .u = 0x0000,  .v = 0x0000 },
+            // zig fmt: on
+        }),
+    });
+
+    sokol_state.view = sg.makeView(.{
+        .texture = .{
+            .image = sokol_state.fallback_image,
+        },
+    });
+    sokol_state.sampler = sg.makeSampler(.{});
+
     initMaybe() catch |err| @panic(@errorName(err));
 }
 
+const Vertex = extern struct { x: f32, y: f32, color: u32, u: u16, v: u16 };
+
 fn onFrame() callconv(.c) void {
     frameMaybe() catch |err| @panic(@errorName(err));
+
+    var bind: sg.Bindings = .{};
+
+    var pass_action: sg.PassAction = .{};
+    pass_action.colors[0].load_action = .CLEAR;
+    pass_action.colors[0].clear_value = .{
+        .r = 0.2,
+        .g = 0.2,
+        .b = 0.2,
+        .a = 1,
+    };
+
+    bind.vertex_buffers[0] = sokol_state.test_triangle;
+    bind.views[shader_sprite2d.VIEW_tex] = sokol_state.view;
+    bind.samplers[shader_sprite2d.SMP_smp] = sokol_state.sampler;
+
+    sg.beginPass(.{
+        .action = pass_action,
+        .swapchain = sglue.swapchain(),
+    });
+    sg.applyPipeline(sokol_state.pipeline);
+    sg.applyBindings(bind);
+    //sg.applyUniforms(shd.UB_vs_params, sg.asRange(&vs_params));
+    sg.draw(0, 3, 1);
+    sg.endPass();
+    sg.commit();
 }
 
 fn onCleanup() callconv(.c) void {
     cleanupMaybe() catch |err| @panic(@errorName(err));
+
+    sg.destroyShader(sokol_state.shader);
+
+    sg.shutdown();
 }
 
 fn onEvent(event: [*c]const sapp.Event) callconv(.c) void {
@@ -1131,7 +1222,7 @@ pub fn main(init: std.process.Init) !void {
         .icon = .{ .sokol_default = true },
         .depth_format = .DEPTH,
         .window_title = "The Discharge of Captain Volt",
-        .logger = .{ .func = slog.func },
+        .logger = .{ .func = util.loggerFunction },
         .win32 = .{ .console_attach = true },
         .swap_interval = 1,
     });
@@ -1232,8 +1323,8 @@ const assert = std.debug.assert;
 const log = std.log;
 const BuildMode = @import("builtin").mode;
 
+const shader_sprite2d = @import("shader_sprite2d");
 const sokol = @import("sokol");
-const slog = sokol.log;
 const sg = sokol.gfx;
 const sapp = sokol.app;
 const sglue = sokol.glue;
