@@ -573,8 +573,8 @@ fn update(
     }
 }
 
-const ArenaWidth = 100 * 16;
-const ArenaHeight = 100 * 16;
+pub const ArenaWidth = 100 * 16;
+pub const ArenaHeight = 100 * 16;
 
 fn render(input: Input) void {
     rl.DrawRectangle(-ArenaWidth * 0.5, -ArenaHeight * 0.5, 1, ArenaHeight, rl.GRAY);
@@ -1106,7 +1106,7 @@ const SokolState = struct {
     immediate_render: ImmediateRender,
 };
 
-var sokol_state: SokolState = undefined;
+pub var sokol_state: SokolState = undefined;
 
 fn onInit() callconv(.c) void {
     sg.setup(.{
@@ -1141,7 +1141,7 @@ fn onInit() callconv(.c) void {
         //     .compare = .LESS_EQUAL,
         //     .write_enabled = true,
         // },
-        .cull_mode = .BACK,
+        //.cull_mode = .BACK,
     });
 
     sokol_state.test_triangle = sg.makeBuffer(.{
@@ -1170,28 +1170,6 @@ const Vertex = extern struct { x: f32, y: f32, color: u32, u: u16, v: u16 };
 
 fn onFrame() callconv(.c) void {
     frameMaybe() catch |err| @panic(@errorName(err));
-
-    {
-        // Note: AA BB GG RR
-
-        sokol_state.immediate_render.pushQuad(.{
-            // zig fmt: off
-            .{.x = -0.5, .y =  0.5, .color = 0xFF0000FF, .u = 0x0000, .v = 0x0000 },
-            .{.x =  0.5, .y =  0.5, .color = 0xFF00FF00, .u = 0xFFFF, .v = 0x0000 },
-            .{.x =  0.5, .y = -0.5, .color = 0xFFFF0000, .u = 0xFFFF, .v = 0xFFFF },
-            .{.x = -0.5, .y = -0.5, .color = 0xFFFFFFFF, .u = 0x0000, .v = 0xFFFF },
-            // zig fmt: on
-        }, sokol_state.view);
-
-        sokol_state.immediate_render.pushQuad(.{
-            // zig fmt: off
-            .{.x = -0.25, .y =  0.25, .color = 0xFF0000FF, .u = 0x0000, .v = 0x0000 },
-            .{.x =  0.25, .y =  0.25, .color = 0xFF00FF00, .u = 0xFFFF, .v = 0x0000 },
-            .{.x =  0.25, .y = -0.25, .color = 0xFFFF0000, .u = 0xFFFF, .v = 0xFFFF },
-            .{.x = -0.25, .y = -0.25, .color = 0xFFFFFFFF, .u = 0x0000, .v = 0xFFFF },
-            // zig fmt: on
-        }, sokol_state.view);
-    }
 
     var pass_action: sg.PassAction = .{};
     pass_action.colors[0].load_action = .CLEAR;
@@ -1338,6 +1316,64 @@ const ImmediateRender = struct {
     };
 };
 
+pub const Quad = struct {
+    pos: [2]f32,
+    size: [2]f32,
+    origin: [2]f32,
+    // TODO: rotation
+    screen_size: [2]f32,
+    color: u32,
+
+    const Self = @This();
+
+    // Sprite
+    //  .------> x
+    //  |
+    //  |
+    //  |
+    // \/ y
+
+    // NDC
+    //        /\ 1 y
+    //        |
+    // -1 --------> 1 x
+    //        |
+    //        | -1
+    //
+
+    const Vec2 = @Vector(2, f32);
+
+    fn norm(value: Vec2, size: Vec2) Vec2 {
+        const min: Vec2 = @splat(-1);
+        const max: Vec2 = @splat(1);
+        return value / size * (max - min) + min;
+    }
+
+    pub fn toVertices(self: Self) [4]Vertex {
+        const size: Vec2 = self.size;
+
+        const origin: Vec2 = self.origin;
+
+        var top_left: Vec2 = self.pos;
+        top_left -= size * origin;
+
+        const bottom_right = norm(top_left + size, self.screen_size);
+
+        top_left = norm(top_left, self.screen_size);
+
+        return .{
+            // zig fmt: off
+            .{.x =     top_left[0], .y =     top_left[1], .color = self.color, .u = 0x0000, .v = 0x0000 },
+            .{.x = bottom_right[0], .y =     top_left[1], .color = self.color, .u = 0xFFFF, .v = 0x0000 },
+            .{.x = bottom_right[0], .y = bottom_right[1], .color = self.color, .u = 0xFFFF, .v = 0xFFFF },
+            .{.x =     top_left[0], .y = bottom_right[1], .color = self.color, .u = 0x0000, .v = 0xFFFF },
+            // zig fmt: on
+        };
+    }
+};
+
+pub const ScreenSize = .{ 1280, 720 };
+
 pub fn main(init: std.process.Init) !void {
     gpa = init.gpa;
     io = init.io;
@@ -1345,8 +1381,8 @@ pub fn main(init: std.process.Init) !void {
         .init_cb = onInit,
         .frame_cb = onFrame,
         .cleanup_cb = onCleanup,
-        .width = 1280,
-        .height = 720,
+        .width = ScreenSize[0],
+        .height = ScreenSize[1],
         .icon = .{ .sokol_default = true },
         .depth_format = .DEPTH,
         .window_title = "The Discharge of Captain Volt",

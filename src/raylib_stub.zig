@@ -10,7 +10,7 @@ pub const Image = struct {};
 pub const Rectangle = struct { x: f32 = 0, y: f32 = 0, width: f32 = 0, height: f32 = 0 };
 pub const Vector2 = extern struct { x: f32 = 0, y: f32 = 0 };
 pub const Vector3 = extern struct { x: f32 = 0, y: f32 = 0, z: f32 = 0 };
-pub const Color = struct {
+pub const Color = packed struct(u32) {
     r: u8 = 0,
     g: u8 = 0,
     b: u8 = 0,
@@ -142,17 +142,17 @@ pub fn GetFrameTime() f32 {
         if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
     }
 
-    return 1 / 60;
+    return 1.0 / 60.0;
 }
 
 pub fn GetScreenWidth() i32 {
     if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
-    return 1280;
+    return m.ScreenSize[0];
 }
 
 pub fn GetScreenHeight() i32 {
     if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
-    return 720;
+    return m.ScreenSize[1];
 }
 
 pub fn MeasureText(text: [*c]const u8, fontSize: i32) i32 {
@@ -337,6 +337,16 @@ pub fn DrawRectangle(posX: i32, posY: i32, width: i32, height: i32, color: Color
 
 pub fn DrawTexturePro(texture: Texture2D, source: Rectangle, dest: Rectangle, origin: Vector2, rotation: f32, tint: Color) void {
     if (LogEnabled) log.debug("{s}({any}, {any}, {any}, {any}, {d}, {any})", .{ @src().fn_name, texture, source, dest, origin, rotation, tint });
+
+    const q: m.Quad = .{
+        .pos = .{ dest.x + current_camera.offset.x, dest.y + current_camera.offset.y },
+        .size = .{ 16, 16 },
+        .origin = .{ 0, 0 },
+        .screen_size = m.ScreenSize,
+        .color = @bitCast(tint),
+    };
+
+    m.sokol_state.immediate_render.pushQuad(q.toVertices(), m.sokol_state.view);
 }
 
 pub fn BeginDrawing() void {
@@ -347,8 +357,11 @@ pub fn EndDrawing() void {
     if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
 }
 
+var current_camera: Camera2D = .{};
+
 pub fn BeginMode2D(camera: Camera2D) void {
     if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, camera });
+    current_camera = camera;
 }
 
 pub fn EndMode2D() void {
@@ -361,12 +374,89 @@ pub fn ClearBackground(color: Color) void {
 
 pub fn ColorToHSV(color: Color) Vector3 {
     if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, color });
+
+    // Vector3 hsv = { 0 };
+    // Vector3 rgb = { (float)color.r/255.0f, (float)color.g/255.0f, (float)color.b/255.0f };
+    // float min = 0.0f;
+    // float max = 0.0f;
+    // float delta = 0.0f;
+
+    // min = (rgb.x < rgb.y)? rgb.x : rgb.y;
+    // min = (min < rgb.z)? min : rgb.z;
+
+    // max = (rgb.x > rgb.y)? rgb.x : rgb.y;
+    // max = (max > rgb.z)? max : rgb.z;
+
+    // hsv.z = max; // Value
+    // delta = max - min;
+
+    // if (delta < 0.00001f)
+    // {
+    //     hsv.y = 0.0f;
+    //     hsv.x = 0.0f; // Undefined, maybe NAN?
+    //     return hsv;
+    // }
+
+    // if (max > 0.0f)
+    // {
+    //     // NOTE: If max is 0, this divide would cause a crash
+    //     hsv.y = (delta/max); // Saturation
+    // }
+    // else
+    // {
+    //     // NOTE: If max is 0, then r = g = b = 0, s = 0, h is undefined
+    //     hsv.y = 0.0f;
+    //     hsv.x = NAN; // Undefined
+    //     return hsv;
+    // }
+
+    // // NOTE: Comparing float values could not work properly
+    // if (rgb.x >= max) hsv.x = (rgb.y - rgb.z)/delta; // Between yellow & magenta
+    // else
+    // {
+    //     if (rgb.y >= max) hsv.x = 2.0f + (rgb.z - rgb.x)/delta; // Between cyan & yellow
+    //     else hsv.x = 4.0f + (rgb.x - rgb.y)/delta; // Between magenta & cyan
+    // }
+
+    // hsv.x *= 60.0f; // Convert to degrees
+
+    // if (hsv.x < 0.0f) hsv.x += 360.0f;
+
+    // return hsv;
+
     return .{};
 }
 
 pub fn ColorFromHSV(hue: f32, saturation: f32, value: f32) Color {
     if (LogEnabled) log.debug("{s}({d}, {d}, {d})", .{ @src().fn_name, hue, saturation, value });
-    return .{};
+    // Color color = { 0, 0, 0, 255 };
+
+    // // Red channel
+    // float k = fmodf((5.0f + hue/60.0f), 6);
+    // float t = 4.0f - k;
+    // k = (t < k)? t : k;
+    // k = (k < 1)? k : 1;
+    // k = (k > 0)? k : 0;
+    // color.r = (unsigned char)((value - value*saturation*k)*255.0f);
+
+    // // Green channel
+    // k = fmodf((3.0f + hue/60.0f), 6);
+    // t = 4.0f - k;
+    // k = (t < k)? t : k;
+    // k = (k < 1)? k : 1;
+    // k = (k > 0)? k : 0;
+    // color.g = (unsigned char)((value - value*saturation*k)*255.0f);
+
+    // // Blue channel
+    // k = fmodf((1.0f + hue/60.0f), 6);
+    // t = 4.0f - k;
+    // k = (t < k)? t : k;
+    // k = (k < 1)? k : 1;
+    // k = (k > 0)? k : 0;
+    // color.b = (unsigned char)((value - value*saturation*k)*255.0f);
+
+    // return color;
+    return .{ .r = 200, .g = 50 };
 }
 
 pub fn Vector2Clamp(arg_v: Vector2, arg_min: Vector2, arg_max: Vector2) callconv(.c) Vector2 {
@@ -432,3 +522,5 @@ pub const RAYWHITE = Color.init(245, 245, 245, 255);
 const std = @import("std");
 const log = std.log;
 const assert = std.debug.assert;
+
+const m = @import("main.zig");
