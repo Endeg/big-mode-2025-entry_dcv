@@ -166,10 +166,36 @@ pub fn GetKeyPressed() Key {
 
 pub fn IsKeyDown(key: Key) bool {
     if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, key });
-    return false;
-}
-pub fn IsKeyUp(key: Key) bool {
-    if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, key });
+
+    const S = struct {
+        var key_prng: std.Random.DefaultPrng = undefined;
+        var key_rng: std.Random = undefined;
+        var initialized = false;
+        var selected_key: usize = undefined;
+        var change_key_timer: u32 = 100;
+    };
+
+    const AwailableKeys = [_]Key{ .W, .A, .S, .D, .I, .J, .K, .L };
+
+    if (!S.initialized) {
+        S.key_prng = .init(0x6969);
+        S.key_rng = S.key_prng.random();
+
+        S.selected_key = S.key_rng.uintLessThan(usize, AwailableKeys.len);
+
+        S.initialized = true;
+    }
+
+    if (key == .L or key == .J or key == .I or key == .K or key == .W or key == .A or key == .S or key == .D) {
+        S.change_key_timer -= 1;
+        if (S.change_key_timer == 0) {
+            S.selected_key = S.key_rng.uintLessThan(usize, AwailableKeys.len);
+            S.change_key_timer = 100;
+        }
+
+        return key == AwailableKeys[S.selected_key];
+    }
+
     return false;
 }
 
@@ -207,8 +233,16 @@ pub fn DrawText(text: [*c]const u8, posX: i32, posY: i32, fontSize: i32, color: 
 }
 
 pub fn ColorLerp(color1: Color, color2: Color, factor: f32) Color {
-    if (LogEnabled) log.debug("{s}({any}, {any}, {d})", .{ @src().fn_name, color1, color2, factor });
-    return .{};
+    const factor_norm = std.math.clamp(factor, 0, 1);
+
+    var color: Color = .{};
+
+    color.r = @intFromFloat(((1 - factor_norm) * @as(f32, @floatFromInt(color1.r)) + factor * @as(f32, @floatFromInt(color2.r))));
+    color.g = @intFromFloat(((1 - factor_norm) * @as(f32, @floatFromInt(color1.g)) + factor * @as(f32, @floatFromInt(color2.g))));
+    color.b = @intFromFloat(((1 - factor_norm) * @as(f32, @floatFromInt(color1.b)) + factor * @as(f32, @floatFromInt(color2.b))));
+    color.a = @intFromFloat(((1 - factor_norm) * @as(f32, @floatFromInt(color1.a)) + factor * @as(f32, @floatFromInt(color2.a))));
+
+    return color;
 }
 
 pub fn DrawRectangleV(position: Vector2, size: Vector2, color: Color) void {
