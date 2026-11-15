@@ -373,90 +373,87 @@ pub fn ClearBackground(color: Color) void {
 }
 
 pub fn ColorToHSV(color: Color) Vector3 {
-    if (LogEnabled) log.debug("{s}({any})", .{ @src().fn_name, color });
+    // @note: Converted from Raylib
+    var hsv: Vector3 = .{ .x = 0, .y = 0, .z = 0 };
 
-    // Vector3 hsv = { 0 };
-    // Vector3 rgb = { (float)color.r/255.0f, (float)color.g/255.0f, (float)color.b/255.0f };
-    // float min = 0.0f;
-    // float max = 0.0f;
-    // float delta = 0.0f;
+    const rgb: Vector3 = .{
+        .x = @as(f32, color.r) / 255,
+        .y = @as(f32, color.g) / 255,
+        .z = @as(f32, color.b) / 255,
+    };
 
-    // min = (rgb.x < rgb.y)? rgb.x : rgb.y;
-    // min = (min < rgb.z)? min : rgb.z;
+    var min: f32 = 0;
+    var max: f32 = 0;
+    var delta: f32 = 0;
 
-    // max = (rgb.x > rgb.y)? rgb.x : rgb.y;
-    // max = (max > rgb.z)? max : rgb.z;
+    min = if (rgb.x < rgb.y) rgb.x else rgb.y;
+    min = if (min < rgb.z) min else rgb.z;
 
-    // hsv.z = max; // Value
-    // delta = max - min;
+    max = if (rgb.x > rgb.y) rgb.x else rgb.y;
+    max = if (max > rgb.z) max else rgb.z;
 
-    // if (delta < 0.00001f)
-    // {
-    //     hsv.y = 0.0f;
-    //     hsv.x = 0.0f; // Undefined, maybe NAN?
-    //     return hsv;
-    // }
+    hsv.z = max;
+    delta = max - min;
 
-    // if (max > 0.0f)
-    // {
-    //     // NOTE: If max is 0, this divide would cause a crash
-    //     hsv.y = (delta/max); // Saturation
-    // }
-    // else
-    // {
-    //     // NOTE: If max is 0, then r = g = b = 0, s = 0, h is undefined
-    //     hsv.y = 0.0f;
-    //     hsv.x = NAN; // Undefined
-    //     return hsv;
-    // }
+    if (delta < 0.00001) {
+        hsv.y = 0;
+        hsv.x = 0; // Undefined, maybe NAN?
+        return hsv;
+    }
 
-    // // NOTE: Comparing float values could not work properly
-    // if (rgb.x >= max) hsv.x = (rgb.y - rgb.z)/delta; // Between yellow & magenta
-    // else
-    // {
-    //     if (rgb.y >= max) hsv.x = 2.0f + (rgb.z - rgb.x)/delta; // Between cyan & yellow
-    //     else hsv.x = 4.0f + (rgb.x - rgb.y)/delta; // Between magenta & cyan
-    // }
+    if (max > 0) {
+        // NOTE: If max is 0, this divide would cause a crash
+        hsv.y = (delta / max); // Saturation
+    } else {
+        // NOTE: If max is 0, then r = g = b = 0, s = 0, h is undefined
+        hsv.y = 0.0;
+        hsv.x = std.math.nan(f32); // Undefined
+        return hsv;
+    }
 
-    // hsv.x *= 60.0f; // Convert to degrees
+    // NOTE: Comparing float values could not work properly
+    if (rgb.x >= max) {
+        hsv.x = (rgb.y - rgb.z) / delta; // Between yellow & magenta
+    } else {
+        if (rgb.y >= max) {
+            hsv.x = 2.0 + (rgb.z - rgb.x) / delta; // Between cyan & yellow
+        } else {
+            hsv.x = 4.0 + (rgb.x - rgb.y) / delta; // Between magenta & cyan
+        }
+    }
 
-    // if (hsv.x < 0.0f) hsv.x += 360.0f;
+    hsv.x *= 60.0; // Convert to degrees
 
-    // return hsv;
+    if (hsv.x < 0) hsv.x += 360.0;
 
-    return .{};
+    return hsv;
+}
+
+const HsvChannel = enum { red, green, blue };
+
+fn hsvChannel(comptime c: HsvChannel, hue: f32, saturation: f32, value: f32) u8 {
+    const channel_value: f32 = switch (c) {
+        .red => 4,
+        .green => 3,
+        .blue => 1,
+    };
+
+    var k: f32 = @mod(channel_value + hue / 60, 6);
+    const t: f32 = 4 - k;
+    k = if (t < k) t else k;
+    k = if (k < 1) k else 1;
+    k = if (k > 0) k else 0;
+    return @intFromFloat((value - value * saturation * k) * 0xFF);
 }
 
 pub fn ColorFromHSV(hue: f32, saturation: f32, value: f32) Color {
     if (LogEnabled) log.debug("{s}({d}, {d}, {d})", .{ @src().fn_name, hue, saturation, value });
-    // Color color = { 0, 0, 0, 255 };
-
-    // // Red channel
-    // float k = fmodf((5.0f + hue/60.0f), 6);
-    // float t = 4.0f - k;
-    // k = (t < k)? t : k;
-    // k = (k < 1)? k : 1;
-    // k = (k > 0)? k : 0;
-    // color.r = (unsigned char)((value - value*saturation*k)*255.0f);
-
-    // // Green channel
-    // k = fmodf((3.0f + hue/60.0f), 6);
-    // t = 4.0f - k;
-    // k = (t < k)? t : k;
-    // k = (k < 1)? k : 1;
-    // k = (k > 0)? k : 0;
-    // color.g = (unsigned char)((value - value*saturation*k)*255.0f);
-
-    // // Blue channel
-    // k = fmodf((1.0f + hue/60.0f), 6);
-    // t = 4.0f - k;
-    // k = (t < k)? t : k;
-    // k = (k < 1)? k : 1;
-    // k = (k > 0)? k : 0;
-    // color.b = (unsigned char)((value - value*saturation*k)*255.0f);
-
-    // return color;
-    return .{ .r = 200, .g = 50 };
+    return .{
+        .r = hsvChannel(.red, hue, saturation, value),
+        .g = hsvChannel(.green, hue, saturation, value),
+        .b = hsvChannel(.blue, hue, saturation, value),
+        .a = 255,
+    };
 }
 
 pub fn Vector2Clamp(arg_v: Vector2, arg_min: Vector2, arg_max: Vector2) callconv(.c) Vector2 {

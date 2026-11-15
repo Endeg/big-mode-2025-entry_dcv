@@ -28,6 +28,14 @@
             .url = "git+https://github.com/floooh/sokol-zig.git#39ae45eeb22ecdd06d4c96d77cd74a98a3ab1e75",
             .hash = "sokol-0.1.0-pb1HK8QiQwDomRaZHsdF5UUkEqjgM0spI3UY3n1GBm5O",
         },
+        .zigimg = .{
+            .url = "git+https://github.com/zigimg/zigimg.git#bbdbb8623c38b55985f968e9652a2dc17ba56ee9",
+            .hash = "zigimg-0.1.0-8_eo2qBpGADeVlkaFseD4JHHWhAG_i2-I8ZOppCUk6rR",
+        },
+        .TrueType = .{
+            .url = "git+https://codeberg.org/andrewrk/TrueType.git#4fea1e7c0f9d4d79348d0302c7628f485301b6ac",
+            .hash = "TrueType-3.0.0-dev-Ne-mWBF4AQAMqTUooRKXp31FdyJSGmRwSIw4vy7EREcT",
+        },
     },
     .paths = .{
         "build.zig",
