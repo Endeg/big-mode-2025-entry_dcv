@@ -14,15 +14,16 @@ pub const Sprite = struct {
     origin: rl.Vector2,
 };
 
-pub fn init() SpriteManager {
+pub fn init(gpa: std.mem.Allocator) !SpriteManager {
     var textures = std.EnumArray(TextureAsset, rl.Texture2D).initUndefined();
     inline for (@typeInfo(TextureAsset).@"enum".field_values) |texture_asset_field_value| {
         const texture_asset: TextureAsset = @fromBackingInt(@intCast(texture_asset_field_value));
 
         const file_data = TextureAssets.get(texture_asset);
 
-        const image = rl.LoadImageFromMemory(".png", file_data.ptr, @intCast(file_data.len));
-        defer rl.UnloadImage(image);
+        // @todo: Call `zigimg` here directly
+        const image = try rl.LoadImageFromMemory(".png", file_data.ptr, @intCast(file_data.len), gpa);
+        defer rl.UnloadImage(image, gpa);
         log.debug("image = {any}.", .{image});
 
         const texture = rl.LoadTextureFromImage(image);

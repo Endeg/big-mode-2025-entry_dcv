@@ -3,10 +3,20 @@ pub const FLAG_WINDOW_RESIZABLE: i32 = 4;
 pub const Sound = struct {};
 pub const Wave = struct {};
 pub const Texture2D = struct {
+    // @todo: Cleanup
+    const sg = @import("sokol").gfx;
+
     width: i32,
     height: i32,
+
+    image: sg.Image,
+    view: sg.View,
 };
-pub const Image = struct {};
+pub const Image = struct {
+    width: u16,
+    height: u16,
+    pixels: [*]Color,
+};
 pub const Rectangle = struct { x: f32 = 0, y: f32 = 0, width: f32 = 0, height: f32 = 0 };
 pub const Vector2 = extern struct { x: f32 = 0, y: f32 = 0 };
 pub const Vector3 = extern struct { x: f32 = 0, y: f32 = 0, z: f32 = 0 };
@@ -60,26 +70,57 @@ pub fn LoadWaveFromMemory(fileType: [*c]const u8, fileData: [*c]const u8, dataSi
     return .{};
 }
 
-pub fn LoadImageFromMemory(fileType: [*c]const u8, fileData: [*c]const u8, dataSize: i32) Image {
+/// Deprecated
+pub fn LoadImageFromMemory(fileType: [*c]const u8, fileData: [*c]const u8, dataSize: i32, gpa: std.mem.Allocator) !Image {
+    const zigimg = @import("zigimg");
+
     if (LogEnabled) {
         log.debug("{s}({s}, <fileData>, {d})", .{ @src().fn_name, fileType, dataSize });
         std.debug.dumpHex(fileData[0..@intCast(@min(dataSize, 16))]);
     }
-    return .{};
-}
 
-pub fn LoadTextureFromImage(image: Image) Texture2D {
-    _ = image;
-    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
+    var image = try zigimg.Image.fromMemory(gpa, fileData[0..@intCast(dataSize)]);
+    defer image.deinit(gpa);
+
+    try image.convert(gpa, .rgba32);
+
+    const rgba = image.pixels.rgba32;
+    const PixelType = @typeInfo(@TypeOf(rgba)).pointer.child;
+    const copy = try gpa.dupe(PixelType, rgba);
+
     return .{
-        .width = 8,
-        .height = 8,
+        .width = @intCast(image.width),
+        .height = @intCast(image.height),
+        .pixels = @ptrCast(@alignCast(copy.ptr)),
     };
 }
 
-pub fn UnloadImage(image: Image) void {
-    if (LogEnabled) log.debug("{s}()", .{@src().fn_name});
-    _ = image;
+pub fn LoadTextureFromImage(image: Image) Texture2D {
+    // @todo: Cleanup
+    const sg = @import("sokol").gfx;
+
+    const sokol_image = sg.makeImage(.{
+        .width = image.width,
+        .height = image.height,
+        .data = sg.asRange(image.pixels[0..(image.width * image.height)]),
+    });
+
+    const view = sg.makeView(.{
+        .texture = .{ .image = sokol_image },
+    });
+
+    return .{
+        .width = image.width,
+        .height = image.height,
+        .image = sokol_image,
+        .view = view,
+    };
+}
+
+/// Deprecated
+pub fn UnloadImage(image: Image, gpa: std.mem.Allocator) void {
+    const aligned: []align(1) Color = image.pixels[0 .. image.width * image.height];
+    gpa.free(aligned);
 }
 
 pub fn UnloadWave(wave: Wave) void {
@@ -346,7 +387,7 @@ pub fn DrawTexturePro(texture: Texture2D, source: Rectangle, dest: Rectangle, or
         .color = @bitCast(tint),
     };
 
-    m.sokol_state.immediate_render.pushQuad(q.toVertices(), m.sokol_state.view);
+    m.sokol_state.immediate_render.pushQuad(q.toVertices(), texture.view);
 }
 
 pub fn BeginDrawing() void {

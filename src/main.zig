@@ -814,7 +814,7 @@ fn initMaybe() !void {
 
     config_watcher = try util.FileWatcher.init(".", "config.json", 0.5, io);
 
-    sprite_manager = SpriteManager.init();
+    sprite_manager = try SpriteManager.init(gpa);
     audio_manager = AudioManager.init();
 
     entity_manager = try EntityManager.init(gpa);
@@ -1101,7 +1101,7 @@ const SokolState = struct {
     fallback_image: sg.Image,
     pipeline: sg.Pipeline,
     test_triangle: sg.Buffer,
-    view: sg.View,
+    fallback_image_view: sg.View,
     sampler: sg.Sampler,
     immediate_render: ImmediateRender,
 };
@@ -1154,7 +1154,7 @@ fn onInit() callconv(.c) void {
         }),
     });
 
-    sokol_state.view = sg.makeView(.{
+    sokol_state.fallback_image_view = sg.makeView(.{
         .texture = .{
             .image = sokol_state.fallback_image,
         },
@@ -1180,10 +1180,23 @@ fn onFrame() callconv(.c) void {
         .a = 1,
     };
 
-    var bind: sg.Bindings = .{};
-    bind.vertex_buffers[0] = sokol_state.test_triangle;
-    bind.views[shader_sprite2d.VIEW_tex] = sokol_state.view;
-    bind.samplers[shader_sprite2d.SMP_smp] = sokol_state.sampler;
+    if (false) {
+        var it = sprite_manager.textures.iterator();
+
+        var i: f32 = 0;
+        while (it.next()) |texture_entry| : (i += 1) {
+            const texture = texture_entry.value.*;
+
+            const q: Quad = .{
+                .pos = .{ i * 70 + 6, 6 },
+                .size = .{ 64, 64 },
+                .origin = .{ 0, 0 },
+                .screen_size = ScreenSize,
+                .color = @bitCast(rl.RED),
+            };
+            sokol_state.immediate_render.pushQuad(q.toVertices(), texture.view);
+        }
+    }
 
     sg.beginPass(.{
         .action = pass_action,
@@ -1267,6 +1280,13 @@ const ImmediateRender = struct {
             return;
         }
 
+        if (false) {
+            for (self.draw_calls[0..5], 0..) |draw_call, i| {
+                log.debug("{d} - base: {d}, num: {d}.", .{ i, draw_call.base_element, draw_call.num_elements });
+            }
+            assert(false);
+        }
+
         sg.writeBufferTransient(.{
             .src = .{ .data = sg.asRange(self.vertices[0..self.vertex_index]) },
             .dst = .{ .buffer = self.buffer },
@@ -1305,8 +1325,13 @@ const ImmediateRender = struct {
             return;
         }
 
+        const num_elements = self.current_draw_call.num_elements;
+
         self.draw_calls[self.draw_call_index] = self.current_draw_call;
         self.draw_call_index += 1;
+
+        self.current_draw_call.base_element += num_elements;
+        self.current_draw_call.num_elements = 0;
     }
 
     const DrawCall = struct {

@@ -27,6 +27,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
     const optimize = b.standardOptimizeOption(.{});
 
+    const dep_zigimg = b.dependency("zigimg", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const dep_sokol = b.dependency("sokol", .{
         .target = target,
         .optimize = optimize,
@@ -40,10 +45,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{
-                .name = "sokol",
-                .module = mod_sokol,
-            },
+            .{ .name = "sokol", .module = mod_sokol },
+            .{ .name = "zigimg", .module = dep_zigimg.module("zigimg") },
         },
     });
 
