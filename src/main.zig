@@ -15,6 +15,17 @@
 //        +6. Trees, bushes and roads to have background.
 // TODO: Gamepad support
 
+// Raylib -> Sokol migration
+// @todo: Proper transformations (pos -> NDC) and correct vertical orientation using matrices
+// @done: Linear algebra - vectors and matrices
+// @todo: More elaborate pipeline for immediate 2d vertices matrix stack, etc.
+// @todo: Audio
+// @todo: Index buffer in immediate render to use 4 vertices per quad
+// @todo: Text rendering
+// @todo: Asset system: pack all sprites and glyphs into a single texture (dev build - pack at startup, release build - pack at build time)
+// @todo: Cleanup: remove `raylib_stub.zig`, separate platform, asset loader and game code
+// @todo: Timing and fixed step of 1/60 sec
+
 fn drawSprite(
     sprite: *const Sprite,
     position: rl.Vector2,
@@ -1366,20 +1377,31 @@ pub const Quad = struct {
     //        | -1
     //
 
-    const Vec2 = @Vector(2, f32);
+    fn norm(value: vec2, size: vec2) vec2 {
+        const value_v3: vec3 = .{ value[0], value[1], 1 };
 
-    fn norm(value: Vec2, size: Vec2) Vec2 {
-        const min: Vec2 = @splat(-1);
-        const max: Vec2 = @splat(1);
-        return value / size * (max - min) + min;
+        const scale: mat3 = .{
+            .{ 4 / size[0], 0, 0 },
+            .{ 0, -4 / size[1], 0 },
+            .{ 0, 0, 1 },
+        };
+
+        const translate: mat3 = .{
+            .{ 1, 0, -size[0] / 2 },
+            .{ 0, 1, -size[1] / 2 },
+            .{ 0, 0, 1 },
+        };
+
+        const normalized = la.transform(value_v3, la.mul(translate, scale));
+        return .{ normalized[0], normalized[1] };
     }
 
     pub fn toVertices(self: Self) [4]Vertex {
-        const size: Vec2 = self.size;
+        const size: vec2 = self.size;
 
-        const origin: Vec2 = self.origin;
+        const origin: vec2 = self.origin;
 
-        var top_left: Vec2 = self.pos;
+        var top_left: vec2 = self.pos;
         top_left -= size * origin;
 
         const bottom_right = norm(top_left + size, self.screen_size);
@@ -1400,6 +1422,26 @@ pub const Quad = struct {
 pub const ScreenSize = .{ 1280, 720 };
 
 pub fn main(init: std.process.Init) !void {
+    {
+        const value_v3: vec3 = .{ 100, 0, 1 };
+
+        const scale: mat3 = .{
+            .{ 2 / 320, 0, 1 },
+            .{ 0, -2 / 240, -1 },
+            .{ 0, 0, 1 },
+        };
+
+        // const translate: mat3 = .{
+        //     .{ 1, 0, 0 },
+        //     .{ 0, 1, 0 },
+        //     .{ 0, 0, 1 },
+        // };
+
+        log.debug("{any} -> {any}!", .{ value_v3, la.transform(value_v3, scale) });
+
+        // unreachable;
+    }
+
     gpa = init.gpa;
     io = init.io;
     sapp.run(.{
@@ -1409,7 +1451,7 @@ pub fn main(init: std.process.Init) !void {
         .width = ScreenSize[0],
         .height = ScreenSize[1],
         .icon = .{ .sokol_default = true },
-        .depth_format = .DEPTH,
+        .depth_format = .NONE,
         .window_title = "The Discharge of Captain Volt",
         .logger = .{ .func = util.loggerFunction },
         .win32 = .{ .console_attach = true },
@@ -1522,6 +1564,11 @@ const AudioManager = @import("AudioManager.zig");
 const EntityManager = @import("entity.zig").EntityManager;
 const GigaEntity = @import("entity.zig").GigaEntity;
 const GlobalConfig = @import("GlobalConfig.zig");
+const la = @import("linalg.zig");
+const vec2 = la.vec2;
+const mat2 = la.mat2;
+const vec3 = la.vec3;
+const mat3 = la.mat3;
 const rl = @import("raylib_stub.zig");
 const SpriteManager = @import("SpriteManager.zig");
 const Sprite = SpriteManager.Sprite;

@@ -172,7 +172,7 @@ pub fn IsKeyDown(key: Key) bool {
         var key_rng: std.Random = undefined;
         var initialized = false;
         var selected_key: usize = undefined;
-        var change_key_timer: u32 = 100;
+        var change_key_timer: u32 = undefined;
     };
 
     const AwailableKeys = [_]Key{ .W, .A, .S, .D, .I, .J, .K, .L };
@@ -182,6 +182,7 @@ pub fn IsKeyDown(key: Key) bool {
         S.key_rng = S.key_prng.random();
 
         S.selected_key = S.key_rng.uintLessThan(usize, AwailableKeys.len);
+        S.change_key_timer = S.key_rng.uintAtMost(u32, 200) + 1;
 
         S.initialized = true;
     }
@@ -190,7 +191,7 @@ pub fn IsKeyDown(key: Key) bool {
         S.change_key_timer -= 1;
         if (S.change_key_timer == 0) {
             S.selected_key = S.key_rng.uintLessThan(usize, AwailableKeys.len);
-            S.change_key_timer = 100;
+            S.change_key_timer = S.key_rng.uintAtMost(u32, 200) + 1;
         }
 
         return key == AwailableKeys[S.selected_key];
