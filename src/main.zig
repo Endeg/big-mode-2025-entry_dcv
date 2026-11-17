@@ -1380,19 +1380,21 @@ pub const Quad = struct {
     fn norm(value: vec2, size: vec2) vec2 {
         const value_v3: vec3 = .{ value[0], value[1], 1 };
 
-        const scale: mat3 = .{
-            .{ 4 / size[0], 0, 0 },
-            .{ 0, -4 / size[1], 0 },
-            .{ 0, 0, 1 },
-        };
+        const vp = la.mat3Ortho(0, size[0], size[1], 0);
 
-        const translate: mat3 = .{
-            .{ 1, 0, -size[0] / 2 },
-            .{ 0, 1, -size[1] / 2 },
-            .{ 0, 0, 1 },
-        };
+        // const scale: mat3 = .{
+        //     .{ 4 / size[0], 0, 0 },
+        //     .{ 0, -4 / size[1], 0 },
+        //     .{ 0, 0, 1 },
+        // };
 
-        const normalized = la.transform(value_v3, la.mul(translate, scale));
+        // const translate: mat3 = .{
+        //     .{ 1, 0, -size[0] / 2 },
+        //     .{ 0, 1, -size[1] / 2 },
+        //     .{ 0, 0, 1 },
+        // };
+
+        const normalized = la.transform(value_v3, vp);
         return .{ normalized[0], normalized[1] };
     }
 

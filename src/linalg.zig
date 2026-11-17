@@ -1,3 +1,6 @@
+// References:
+//   - https://codeberg.org/Games-by-Mason/mr_geom
+
 pub const vec2 = @Vector(2, f32);
 pub const mat2 = [2]vec2;
 
@@ -40,6 +43,36 @@ pub fn mul(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
     }
     return result;
 }
+
+pub fn mat3Ortho(left: f32, right: f32, bottom: f32, top: f32) mat3 {
+    const c: [2]vec2 = .{
+        .{ left, top },
+        .{ right, bottom },
+    };
+
+    const size = c[0] - c[1];
+
+    const scale_factor: vec2 = @as(vec2, @splat(2)) / size;
+    const offset = -(c[0] + c[1]) / size;
+
+    const wf = scale_factor[0];
+    const hf = scale_factor[1];
+
+    const ox = offset[0];
+    const oy = offset[1];
+
+    return .{
+        .{ wf, 0, ox },
+        .{ 0, hf, oy },
+        .{ 0, 0, 1 },
+    };
+}
+
+pub const Mat3Identity: mat3 = .{
+    .{ 1, 0, 0 },
+    .{ 0, 1, 0 },
+    .{ 0, 0, 1 },
+};
 
 fn vectorAndMatrixCompatible(v: anytype, m: anytype) void {
     const VectorMetadata = @typeInfo(@TypeOf(v)).vector;
@@ -122,6 +155,18 @@ test "mat3 translate" {
 
     const res = transform(v, m);
     try expectEqual(expected, res);
+}
+
+test "mat3 ortho" {
+    const expectEqual = std.testing.expectEqual;
+    const actual = mat3Ortho(0, 320, 240, 0);
+    const expected: mat3 = .{
+        .{ 2.0 / 320.0, 0, -1 },
+        .{ 0, 2.0 / 240.0, -1 },
+        .{ 0, 0, 1 },
+    };
+
+    try expectEqual(expected, actual);
 }
 
 const std = @import("std");
