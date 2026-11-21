@@ -36,6 +36,10 @@
             .url = "git+https://codeberg.org/andrewrk/TrueType.git#4fea1e7c0f9d4d79348d0302c7628f485301b6ac",
             .hash = "TrueType-3.0.0-dev-Ne-mWBF4AQAMqTUooRKXp31FdyJSGmRwSIw4vy7EREcT",
         },
+        .mr_geom = .{
+            .url = "git+https://codeberg.org/Games-by-Mason/mr_geom.git#dc484964f4150759b5a83c92975087ea6552d848",
+            .hash = "mr_geom-0.3.0-7BWThZL5BADy3Tg1TDeKVRogedhiLKrB7OHfoBErsSDy",
+        },
     },
     .paths = .{
         "build.zig",

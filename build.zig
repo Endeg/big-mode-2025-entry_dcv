@@ -38,6 +38,11 @@ pub fn build(b: *std.Build) void {
         // .backend = .gl,
     });
 
+    const dep_mr_geom = b.dependency("mr_geom", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_sokol = dep_sokol.module("sokol");
 
     const exe_mod = b.createModule(.{
@@ -47,11 +52,11 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "sokol", .module = mod_sokol },
             .{ .name = "zigimg", .module = dep_zigimg.module("zigimg") },
+            .{ .name = "mr_geom", .module = dep_mr_geom.module("mr_geom") },
         },
     });
 
     var shader_imports_buffer: [32]std.Build.Module.Import = undefined;
-
     var shader_imports: std.ArrayList(std.Build.Module.Import) = .initBuffer(shader_imports_buffer[0..]);
 
     compileShaders(b, dep_sokol, &shader_imports) catch |err| {

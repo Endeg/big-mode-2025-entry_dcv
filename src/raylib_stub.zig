@@ -415,14 +415,24 @@ pub fn DrawTexturePro(texture: Texture2D, source: Rectangle, dest: Rectangle, or
     if (LogEnabled) log.debug("{s}({any}, {any}, {any}, {any}, {d}, {any})", .{ @src().fn_name, texture, source, dest, origin, rotation, tint });
 
     const q: m.Quad = .{
-        .pos = .{ dest.x + current_camera.offset.x, dest.y + current_camera.offset.y },
-        .size = .{ 16, 16 },
+        .pos = .{ 0, 0 },
+        .size = .{ dest.width, dest.height },
         .origin = .{ 0, 0 },
-        .screen_size = m.ScreenSize,
         .color = @bitCast(tint),
     };
 
-    m.sokol_state.immediate_render.pushQuad(q.toVertices(), texture.view);
+    m.sokol_state.transform_stack.push(Mat3.translation(.{ dest.x, dest.y }));
+    defer m.sokol_state.transform_stack.pop();
+
+    m.sokol_state.transform_stack.push(Mat3.translation(.{ current_camera.offset.x, current_camera.offset.y }));
+    defer m.sokol_state.transform_stack.pop();
+
+    m.sokol_state.transform_stack.push(Mat3.translation(.{ -current_camera.target.x, -current_camera.target.y }));
+    defer m.sokol_state.transform_stack.pop();
+
+    const mvp = m.sokol_state.transform_stack.mvp;
+
+    m.sokol_state.immediate_render.pushQuad(q.toVertices(mvp), texture.view);
 }
 
 pub fn BeginDrawing() void {
@@ -595,5 +605,8 @@ pub const RAYWHITE = Color.init(245, 245, 245, 255);
 const std = @import("std");
 const log = std.log;
 const assert = std.debug.assert;
+
+const la = @import("mr_geom");
+const Mat3 = la.Mat3;
 
 const m = @import("main.zig");

@@ -918,6 +918,34 @@ fn frameMaybe() !void {
     rl.BeginDrawing();
     defer rl.EndDrawing();
 
+    sokol_state.transform_stack.reset(Mat3.ortho(.{
+        .left = 0,
+        .right = screen_width,
+        .bottom = 0,
+        .top = screen_height,
+    }));
+
+    if (false) {
+        var it = sprite_manager.textures.iterator();
+
+        const q: Quad = .{
+            .pos = .{ 0, 0 },
+            .size = .{ 64, 64 },
+            .origin = .{ 0, 0 },
+            .color = @bitCast(rl.RED),
+        };
+
+        var i: f32 = 0;
+        while (it.next()) |texture_entry| : (i += 1) {
+            const texture = texture_entry.value.*;
+
+            sokol_state.transform_stack.push(Mat3.translation(.{ i * (64 + 6), 6 }));
+            defer sokol_state.transform_stack.pop();
+
+            sokol_state.immediate_render.pushQuad(q.toVertices(sokol_state.transform_stack.mvp), texture.view);
+        }
+    }
+
     rl.BeginMode2D(camera);
 
     rl.ClearBackground(rl.BLACK);
@@ -1115,6 +1143,7 @@ const SokolState = struct {
     fallback_image_view: sg.View,
     sampler: sg.Sampler,
     immediate_render: ImmediateRender,
+    transform_stack: TransformStack,
 };
 
 pub var sokol_state: SokolState = undefined;
@@ -1174,6 +1203,8 @@ fn onInit() callconv(.c) void {
 
     sokol_state.immediate_render = .init();
 
+    sokol_state.transform_stack = .{};
+
     initMaybe() catch |err| @panic(@errorName(err));
 }
 
@@ -1190,24 +1221,6 @@ fn onFrame() callconv(.c) void {
         .b = 0.2,
         .a = 1,
     };
-
-    if (false) {
-        var it = sprite_manager.textures.iterator();
-
-        var i: f32 = 0;
-        while (it.next()) |texture_entry| : (i += 1) {
-            const texture = texture_entry.value.*;
-
-            const q: Quad = .{
-                .pos = .{ i * 70 + 6, 6 },
-                .size = .{ 64, 64 },
-                .origin = .{ 0, 0 },
-                .screen_size = ScreenSize,
-                .color = @bitCast(rl.RED),
-            };
-            sokol_state.immediate_render.pushQuad(q.toVertices(), texture.view);
-        }
-    }
 
     sg.beginPass(.{
         .action = pass_action,
@@ -1353,62 +1366,31 @@ const ImmediateRender = struct {
 };
 
 pub const Quad = struct {
+    /// Deprecated - always .{0, 0}
     pos: [2]f32,
     size: [2]f32,
     origin: [2]f32,
-    // TODO: rotation
-    screen_size: [2]f32,
+    // @todo: rotation
     color: u32,
 
     const Self = @This();
 
-    // Sprite
-    //  .------> x
-    //  |
-    //  |
-    //  |
-    // \/ y
-
-    // NDC
-    //        /\ 1 y
-    //        |
-    // -1 --------> 1 x
-    //        |
-    //        | -1
-    //
-
-    fn norm(value: vec2, size: vec2) vec2 {
-        const value_v3: vec3 = .{ value[0], value[1], 1 };
-
-        const vp = la.mat3Ortho(0, size[0], size[1], 0);
-
-        // const scale: mat3 = .{
-        //     .{ 4 / size[0], 0, 0 },
-        //     .{ 0, -4 / size[1], 0 },
-        //     .{ 0, 0, 1 },
-        // };
-
-        // const translate: mat3 = .{
-        //     .{ 1, 0, -size[0] / 2 },
-        //     .{ 0, 1, -size[1] / 2 },
-        //     .{ 0, 0, 1 },
-        // };
-
-        const normalized = la.transform(value_v3, vp);
+    fn norm(value: Vec2, mvp: Mat3) Vec2 {
+        const normalized = mvp.timesPoint(value);
         return .{ normalized[0], normalized[1] };
     }
 
-    pub fn toVertices(self: Self) [4]Vertex {
-        const size: vec2 = self.size;
+    pub fn toVertices(self: Self, mvp: Mat3) [4]Vertex {
+        const size: Vec2 = self.size;
 
-        const origin: vec2 = self.origin;
+        const origin: Vec2 = self.origin;
 
-        var top_left: vec2 = self.pos;
+        var top_left: Vec2 = self.pos;
         top_left -= size * origin;
 
-        const bottom_right = norm(top_left + size, self.screen_size);
+        const bottom_right = norm(top_left + size, mvp);
 
-        top_left = norm(top_left, self.screen_size);
+        top_left = norm(top_left, mvp);
 
         return .{
             // zig fmt: off
@@ -1424,25 +1406,25 @@ pub const Quad = struct {
 pub const ScreenSize = .{ 1280, 720 };
 
 pub fn main(init: std.process.Init) !void {
-    {
-        const value_v3: vec3 = .{ 100, 0, 1 };
+    // {
+    //     const value_v3: Vec3 = .{ 100, 0, 1 };
 
-        const scale: mat3 = .{
-            .{ 2 / 320, 0, 1 },
-            .{ 0, -2 / 240, -1 },
-            .{ 0, 0, 1 },
-        };
+    //     const scale: Mat3 = .{ .rows = .{
+    //         .{ 2 / 320, 0, 1 },
+    //         .{ 0, -2 / 240, -1 },
+    //         .{ 0, 0, 1 },
+    //     } };
 
-        // const translate: mat3 = .{
-        //     .{ 1, 0, 0 },
-        //     .{ 0, 1, 0 },
-        //     .{ 0, 0, 1 },
-        // };
+    //     // const translate: Mat3 = .{
+    //     //     .{ 1, 0, 0 },
+    //     //     .{ 0, 1, 0 },
+    //     //     .{ 0, 0, 1 },
+    //     // };
 
-        log.debug("{any} -> {any}!", .{ value_v3, la.transform(value_v3, scale) });
+    //     log.debug("{any} -> {any}!", .{ value_v3, la.transform(value_v3, scale) });
 
-        // unreachable;
-    }
+    //     // unreachable;
+    // }
 
     gpa = init.gpa;
     io = init.io;
@@ -1551,11 +1533,18 @@ fn saveHiScore() !void {
     try r.interface.writeInt(u32, hi_score, .little);
 }
 
+const Vec2 = @Vector(2, f32);
+
+const Vec3 = @Vector(3, f32);
+
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 const BuildMode = @import("builtin").mode;
 
+const la = @import("mr_geom");
+const Mat2 = la.Mat2;
+const Mat3 = la.Mat3;
 const shader_sprite2d = @import("shader_sprite2d");
 const sokol = @import("sokol");
 const sg = sokol.gfx;
@@ -1566,13 +1555,9 @@ const AudioManager = @import("AudioManager.zig");
 const EntityManager = @import("entity.zig").EntityManager;
 const GigaEntity = @import("entity.zig").GigaEntity;
 const GlobalConfig = @import("GlobalConfig.zig");
-const la = @import("linalg.zig");
-const vec2 = la.vec2;
-const mat2 = la.mat2;
-const vec3 = la.vec3;
-const mat3 = la.mat3;
 const rl = @import("raylib_stub.zig");
 const SpriteManager = @import("SpriteManager.zig");
 const Sprite = SpriteManager.Sprite;
 const SpriteHandle = SpriteManager.SpriteHandle;
+const TransformStack = @import("TransformStack.zig");
 const util = @import("util.zig");
